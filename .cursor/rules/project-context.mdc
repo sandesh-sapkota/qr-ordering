@@ -1,0 +1,38 @@
+---
+description: Core stack, schema conventions, and build discipline for the QR ordering MVP. Always active so every prompt and agent action respects these constraints.
+alwaysApply: true
+---
+
+# QR Ordering MVP — Project Rules
+
+Full architecture, schema, UX, and business context lives in `/PROJECT_CONTEXT.md` at the project root. Read it before generating any backend, schema, or page-level code if you haven't already loaded it this session.
+
+## Stack — do not deviate without being explicitly asked
+- Next.js App Router + TypeScript + Tailwind CSS only. No CSS-in-JS, no separate CSS modules unless explicitly requested.
+- Supabase for auth, database, and realtime. No custom Node/Express backend, no separate API server.
+- Use the Supabase JS client directly from Server Components/Server Actions where possible. Only add a Next.js API route when logic must run server-side and can't live in Postgres/RLS (e.g. computing order totals server-side so a client can't tamper with prices).
+
+## Schema conventions
+- Every table (except pure lookup tables) has a `restaurant_id` foreign key — this is multi-tenant from day one, never omit it.
+- Money fields are `numeric(10,2)`, never `float`.
+- `order_items.price_at_order_time` is a snapshot taken at insert time — never join live `menu_items.price` to display historical orders.
+- `tables.qr_token` is a random UUID, never a sequential/guessable value.
+
+## Build discipline
+- Build only what's explicitly asked for in the current prompt. Do not add features, pages, or "nice to haves" that weren't requested, even if related.
+- Don't scaffold a whole feature area in one shot — one screen or one flow per prompt, following the step order in PROJECT_CONTEXT.md section 2.
+- Don't install a new dependency without stating which one and why first.
+- Don't modify the database schema (directly or via MCP) once real restaurant data exists in a table without flagging it first and confirming.
+
+## Explicitly out of scope for MVP — do not build unless asked
+- Payment gateway integration (eSewa/Khalti/FonePay)
+- Kitchen Display System
+- Inventory management
+- Analytics/reporting dashboards
+- Native mobile app
+- Multi-branch/franchise management
+- Full i18n framework — hardcode two string sets (English/Nepali) instead
+
+## Auth
+- Customers: no login, ever. Identity comes from the `qr_token` in the URL only.
+- Admin/staff: Supabase Auth email/password, scoped to `restaurant_id` via RLS — not app-level checks alone.
