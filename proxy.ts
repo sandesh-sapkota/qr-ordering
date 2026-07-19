@@ -45,15 +45,9 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Unauthenticated user on any /admin page → send to login
   if (!user && !isLoginPage) {
-    const loginUrl = new URL("/admin/login", request.url);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  // Already logged in and hitting the login page → send to dashboard
-  if (user && isLoginPage) {
-    const adminUrl = new URL("/admin", request.url);
-    return NextResponse.redirect(adminUrl);
+    return NextResponse.redirect(new URL("/admin/login", request.url));
   }
 
   return response;
