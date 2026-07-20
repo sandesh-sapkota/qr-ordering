@@ -2,8 +2,62 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export type MenuActionState = { error: string | null } | undefined;
+
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+// Uploads a menu item image to the public menu-item-images bucket via the
+// service-role client (bypasses storage RLS — safe here since the caller has
+// already been verified as this restaurant's admin) and returns its public URL.
+async function uploadMenuItemImage(
+  file: File,
+): Promise<{ url: string } | { error: string }> {
+  if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+    return { error: "Image must be a PNG, JPEG, WebP, or GIF file." };
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    return { error: "Image must be smaller than 2MB." };
+  }
+
+  const admin = createAdminClient();
+  const extension = file.type === "image/jpeg" ? "jpg" : file.type.split("/")[1];
+  const path = `${crypto.randomUUID()}.${extension}`;
+
+  const { error } = await admin.storage
+    .from("menu-item-images")
+    .upload(path, file, { contentType: file.type });
+
+  if (error) return { error: `Failed to upload image: ${error.message}` };
+
+  const { data } = admin.storage.from("menu-item-images").getPublicUrl(path);
+  return { url: data.publicUrl };
+}
+
+// Resolves the image URL for a menu item create/update. Priority: an uploaded
+// file wins if present; otherwise an explicit "remove" flag clears the image;
+// otherwise fall back to the pasted URL field.
+async function resolveImageUrl(
+  formData: FormData,
+): Promise<{ url: string | null } | { error: string }> {
+  const imageFile = formData.get("image_file") as File | null;
+  if (imageFile && imageFile.size > 0) {
+    const result = await uploadMenuItemImage(imageFile);
+    if ("error" in result) return { error: result.error };
+    return { url: result.url };
+  }
+  if (formData.get("remove_image") === "true") {
+    return { url: null };
+  }
+  return { url: (formData.get("image_url") as string)?.trim() || null };
+}
 
 async function getRestaurantId(): Promise<string> {
   const supabase = await createClient();
@@ -111,6 +165,9 @@ export async function createMenuItem(
     if (isNaN(price) || price < 0) return { error: "A valid price is required." };
     if (!categoryId) return { error: "A category is required." };
 
+    const imageResult = await resolveImageUrl(formData);
+    if ("error" in imageResult) return { error: imageResult.error };
+
     const supabase = await createClient();
     const { error } = await supabase.from("menu_items").insert({
       restaurant_id: restaurantId,
@@ -118,7 +175,7 @@ export async function createMenuItem(
       name,
       description: (formData.get("description") as string)?.trim() || null,
       price,
-      image_url: (formData.get("image_url") as string)?.trim() || null,
+      image_url: imageResult.url,
       display_order: parseInt(formData.get("display_order") as string) || 0,
       is_available: true,
     });
@@ -147,6 +204,9 @@ export async function updateMenuItem(
     if (isNaN(price) || price < 0) return { error: "A valid price is required." };
     if (!categoryId) return { error: "A category is required." };
 
+    const imageResult = await resolveImageUrl(formData);
+    if ("error" in imageResult) return { error: imageResult.error };
+
     const supabase = await createClient();
     const { error } = await supabase
       .from("menu_items")
@@ -155,7 +215,7 @@ export async function updateMenuItem(
         name,
         description: (formData.get("description") as string)?.trim() || null,
         price,
-        image_url: (formData.get("image_url") as string)?.trim() || null,
+        image_url: imageResult.url,
         display_order: parseInt(formData.get("display_order") as string) || 0,
       })
       .eq("id", id)

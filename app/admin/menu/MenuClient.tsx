@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useEffect, useActionState, useTransition, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useActionState,
+  useTransition,
+  useCallback,
+} from "react";
 import {
   createCategory,
   updateCategory,
@@ -148,6 +155,42 @@ function ItemForm({
   const action = item ? updateMenuItem : createMenuItem;
   const [state, formAction, pending] = useActionState(action, undefined);
 
+  const [imageUrl, setImageUrl] = useState(item?.image_url ?? "");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageRemoved, setImageRemoved] = useState(false);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Build/revoke an object URL preview whenever the chosen file changes.
+  useEffect(() => {
+    if (!imageFile) {
+      setImagePreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(imageFile);
+    setImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
+
+  function handleImageFileChange(file: File | null) {
+    setImageFile(file);
+    // A chosen file takes priority server-side, so clear the URL field and
+    // the remove flag to avoid implying more than one is in effect.
+    if (file) {
+      setImageUrl("");
+      setImageRemoved(false);
+    }
+  }
+
+  function handleRemoveImage() {
+    setImageFile(null);
+    setImageUrl("");
+    setImageRemoved(true);
+    if (imageFileInputRef.current) imageFileInputRef.current.value = "";
+  }
+
+  const hasImage = !!imagePreview || !!imageUrl;
+
   useEffect(() => {
     if (state?.error === null) onClose();
   }, [state, onClose]);
@@ -218,13 +261,53 @@ function ItemForm({
           placeholder="Optional"
         />
       </Field>
-      <Field label="Image URL" id="image_url">
+      <Field label="Image" id="image_file">
+        <input
+          type="hidden"
+          name="remove_image"
+          value={imageRemoved ? "true" : "false"}
+        />
+        {hasImage && (
+          <div className="mb-2 flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imagePreview ?? imageUrl}
+              alt="Item image preview"
+              className="h-14 w-14 shrink-0 rounded-lg border border-zinc-200 object-cover"
+            />
+            <button
+              type="button"
+              onClick={handleRemoveImage}
+              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+            >
+              Remove photo
+            </button>
+          </div>
+        )}
+        <input
+          ref={imageFileInputRef}
+          id="image_file"
+          name="image_file"
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          onChange={(e) => handleImageFileChange(e.target.files?.[0] ?? null)}
+          className="block w-full text-sm text-zinc-600 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-zinc-700 hover:file:bg-zinc-200"
+        />
+        <p className="text-xs text-zinc-400">
+          Upload from your computer (PNG/JPEG/WebP/GIF, max 2MB), or paste a
+          URL below instead.
+        </p>
         <input
           id="image_url"
           name="image_url"
           type="url"
-          defaultValue={item?.image_url ?? ""}
-          className={inputCls}
+          value={imageUrl}
+          disabled={!!imageFile || imageRemoved}
+          onChange={(e) => {
+            setImageUrl(e.target.value);
+            setImageRemoved(false);
+          }}
+          className={`${inputCls} disabled:bg-zinc-50 disabled:text-zinc-400`}
           placeholder="https://…"
         />
       </Field>
