@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 type CartItemInput = {
   menuItemId: string;
   quantity: number;
+  notes?: string;
 };
 
 export type PlaceOrderResult =
@@ -27,7 +28,8 @@ export async function placeOrder(input: {
         typeof i.menuItemId !== "string" ||
         !Number.isInteger(i.quantity) ||
         i.quantity < 1 ||
-        i.quantity > 99,
+        i.quantity > 99 ||
+        (i.notes !== undefined && (typeof i.notes !== "string" || i.notes.length > 200)),
     )
   ) {
     return { ok: false, error: "Your cart is invalid. Please try again." };
@@ -107,6 +109,7 @@ export async function placeOrder(input: {
       menu_item_id: i.menuItemId,
       quantity: i.quantity,
       price_at_order_time: priceById.get(i.menuItemId)!,
+      ...(i.notes?.trim() ? { notes: i.notes.trim() } : {}),
     })),
   );
 

@@ -24,7 +24,7 @@ export default async function OrdersPage() {
   const { data: orders } = await supabase
     .from("orders")
     .select(
-      "id, status, total_amount, created_at, tables(table_number), order_items(id, quantity, price_at_order_time, notes, menu_items(name))",
+      "id, status, total_amount, created_at, updated_at, tables(table_number), order_items(id, quantity, price_at_order_time, notes, menu_items(name))",
     )
     .eq("restaurant_id", adminUser.restaurant_id)
     .in("status", ["pending", "preparing", "served", "completed"])

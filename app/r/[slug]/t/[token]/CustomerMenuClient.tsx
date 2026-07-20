@@ -26,6 +26,7 @@ type MenuItem = {
 type CartLine = {
   item: MenuItem;
   quantity: number;
+  notes: string;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -97,7 +98,17 @@ export default function CustomerMenuClient({
     setCart((prev) => {
       const next = new Map(prev);
       const line = next.get(item.id);
-      next.set(item.id, { item, quantity: (line?.quantity ?? 0) + 1 });
+      next.set(item.id, { item, quantity: (line?.quantity ?? 0) + 1, notes: line?.notes ?? "" });
+      return next;
+    });
+  }
+
+  function setItemNotes(itemId: string, notes: string) {
+    setCart((prev) => {
+      const next = new Map(prev);
+      const line = next.get(itemId);
+      if (!line) return prev;
+      next.set(itemId, { ...line, notes });
       return next;
     });
   }
@@ -125,6 +136,7 @@ export default function CustomerMenuClient({
         items: [...cart.values()].map((line) => ({
           menuItemId: line.item.id,
           quantity: line.quantity,
+          notes: line.notes,
         })),
       });
 
@@ -237,6 +249,7 @@ export default function CustomerMenuClient({
           error={checkoutError}
           onAdd={addToCart}
           onRemove={decrementItem}
+          onNotesChange={setItemNotes}
           onPlaceOrder={handlePlaceOrder}
           onClose={() => setCartOpen(false)}
         />
@@ -569,6 +582,7 @@ function CartSheet({
   error,
   onAdd,
   onRemove,
+  onNotesChange,
   onPlaceOrder,
   onClose,
 }: {
@@ -578,6 +592,7 @@ function CartSheet({
   error: string | null;
   onAdd: (item: MenuItem) => void;
   onRemove: (itemId: string) => void;
+  onNotesChange: (itemId: string, notes: string) => void;
   onPlaceOrder: () => void;
   onClose: () => void;
 }) {
@@ -605,18 +620,28 @@ function CartSheet({
         ) : (
           <>
             <ul className="divide-y divide-zinc-100 px-4">
-              {lines.map(({ item, quantity }) => (
-                <li key={item.id} className="flex items-center justify-between gap-3 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-zinc-900">{item.name}</p>
-                    <p className="text-xs text-zinc-500">
-                      {formatPrice(item.price)} × {quantity}
-                    </p>
+              {lines.map(({ item, quantity, notes }) => (
+                <li key={item.id} className="py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-zinc-900">{item.name}</p>
+                      <p className="text-xs text-zinc-500">
+                        {formatPrice(item.price)} × {quantity}
+                      </p>
+                    </div>
+                    <QuantityStepper
+                      quantity={quantity}
+                      onAdd={() => onAdd(item)}
+                      onRemove={() => onRemove(item.id)}
+                    />
                   </div>
-                  <QuantityStepper
-                    quantity={quantity}
-                    onAdd={() => onAdd(item)}
-                    onRemove={() => onRemove(item.id)}
+                  <textarea
+                    value={notes}
+                    onChange={(e) => onNotesChange(item.id, e.target.value)}
+                    placeholder="Special requests (e.g. no onion)"
+                    maxLength={200}
+                    rows={1}
+                    className="mt-2 w-full resize-none rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
                   />
                 </li>
               ))}
