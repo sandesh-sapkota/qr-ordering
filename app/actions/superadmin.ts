@@ -146,10 +146,20 @@ export async function createRestaurant(
 }
 
 async function getOrigin(): Promise<string> {
-  // Prefer an explicit site URL in production; fall back to the request host so
-  // local dev works without extra config.
+  // Prefer an explicit production URL so invite emails never point at
+  // localhost (common when Site URL / env is still set for local dev).
   const configured = process.env.NEXT_PUBLIC_SITE_URL;
   if (configured) return configured.replace(/\/$/, "");
+
+  // Vercel sets these on every deployment. Prefer the stable production host
+  // over the per-deploy preview host when inviting from production.
+  const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (productionHost && process.env.VERCEL_ENV === "production") {
+    return `https://${productionHost.replace(/\/$/, "")}`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL.replace(/\/$/, "")}`;
+  }
 
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
