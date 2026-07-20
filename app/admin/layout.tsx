@@ -23,7 +23,7 @@ export default async function AdminLayout({
   const [{ data: adminUser }, { data: platformAdmin }] = await Promise.all([
     supabase
       .from("admin_users")
-      .select("name, restaurants(name)")
+      .select("name, restaurants(name, logo_url)")
       .eq("id", user.id)
       .maybeSingle(),
     supabase
@@ -37,15 +37,17 @@ export default async function AdminLayout({
     return <>{children}</>;
   }
 
-  const restaurantName =
-    (adminUser.restaurants as unknown as { name: string } | null)?.name ??
-    "Restaurant";
+  const restaurant = adminUser.restaurants as unknown as {
+    name: string;
+    logo_url: string | null;
+  } | null;
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-100 md:flex-row">
       <AdminNav
         adminName={adminUser.name ?? user.email ?? "Admin"}
-        restaurantName={restaurantName}
+        restaurantName={restaurant?.name ?? "Restaurant"}
+        restaurantLogoUrl={restaurant?.logo_url ?? null}
         isPlatformAdmin={Boolean(platformAdmin)}
       />
       <div className="min-w-0 flex-1">{children}</div>

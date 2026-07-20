@@ -30,13 +30,45 @@ function LogoutButton({ className }: { className?: string }) {
   );
 }
 
+function RestaurantLogo({
+  logoUrl,
+  restaurantName,
+  className,
+}: {
+  logoUrl: string | null;
+  restaurantName: string;
+  className: string;
+}) {
+  if (logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- remote Supabase
+      // storage URL; matches how logos/menu images are rendered elsewhere.
+      <img
+        src={logoUrl}
+        alt={`${restaurantName} logo`}
+        className={`${className} shrink-0 rounded-lg border border-zinc-200 object-cover`}
+      />
+    );
+  }
+  // No logo uploaded — show the restaurant's initial as a placeholder.
+  return (
+    <div
+      className={`${className} flex shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-sm font-semibold text-white`}
+    >
+      {restaurantName.charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
 export default function AdminNav({
   adminName,
   restaurantName,
+  restaurantLogoUrl,
   isPlatformAdmin,
 }: {
   adminName: string;
   restaurantName: string;
+  restaurantLogoUrl: string | null;
   isPlatformAdmin: boolean;
 }) {
   const pathname = usePathname();
@@ -50,11 +82,18 @@ export default function AdminNav({
       {/* Mobile: sticky top bar */}
       <div className="sticky top-0 z-40 border-b border-zinc-200 bg-white md:hidden">
         <div className="flex items-center justify-between gap-2 px-4 pt-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-zinc-900">
-              {restaurantName}
-            </p>
-            <p className="truncate text-xs text-zinc-500">{adminName}</p>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <RestaurantLogo
+              logoUrl={restaurantLogoUrl}
+              restaurantName={restaurantName}
+              className="h-9 w-9"
+            />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-zinc-900">
+                {restaurantName}
+              </p>
+              <p className="truncate text-xs text-zinc-500">{adminName}</p>
+            </div>
           </div>
           <LogoutButton className="shrink-0" />
         </div>
@@ -77,11 +116,18 @@ export default function AdminNav({
 
       {/* Desktop: sidebar */}
       <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-zinc-200 bg-white md:flex">
-        <div className="border-b border-zinc-100 px-4 py-4">
-          <p className="truncate text-sm font-semibold text-zinc-900">
-            {restaurantName}
-          </p>
-          <p className="truncate text-xs text-zinc-500">{adminName}</p>
+        <div className="flex items-center gap-3 border-b border-zinc-100 px-4 py-4">
+          <RestaurantLogo
+            logoUrl={restaurantLogoUrl}
+            restaurantName={restaurantName}
+            className="h-10 w-10"
+          />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-zinc-900">
+              {restaurantName}
+            </p>
+            <p className="truncate text-xs text-zinc-500">{adminName}</p>
+          </div>
         </div>
         <nav className="flex flex-1 flex-col gap-1 p-3">
           {links.map((link) => (
