@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { placeOrder } from "./actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,17 +39,35 @@ function formatPrice(price: number) {
 export default function CustomerMenuClient({
   restaurantName,
   tableNumber,
+  slug,
+  token,
   categories,
   items,
 }: {
   restaurantName: string;
   tableNumber: string;
+  slug: string;
+  token: string;
   categories: Category[];
   items: MenuItem[];
 }) {
+  const sessionKey = `order_id:${token}`;
+
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [cart, setCart] = useState<Map<string, CartLine>>(new Map());
   const [cartOpen, setCartOpen] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [placedOrderId, setPlacedOrderId] = useState<string | null>(null);
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [isPlacing, startPlacing] = useTransition();
+
+  // Restore the most recent order from this session on mount
+  useEffect(() => {
+    const stored = sessionStorage.getItem(sessionKey);
+    if (stored) setActiveOrderId(stored);
+  // sessionKey is derived from token which never changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Only show categories that actually contain available items
   const visibleCategories = useMemo(
@@ -96,32 +116,70 @@ export default function CustomerMenuClient({
     });
   }
 
+  function handlePlaceOrder() {
+    setCheckoutError(null);
+    startPlacing(async () => {
+      const result = await placeOrder({
+        slug,
+        token,
+        items: [...cart.values()].map((line) => ({
+          menuItemId: line.item.id,
+          quantity: line.quantity,
+        })),
+      });
+
+      if (result.ok) {
+        sessionStorage.setItem(sessionKey, result.orderId);
+        setActiveOrderId(result.orderId);
+        setPlacedOrderId(result.orderId);
+        setCart(new Map());
+        setCartOpen(false);
+      } else {
+        setCheckoutError(result.error);
+      }
+    });
+  }
+
+  if (placedOrderId) {
+    return (
+      <OrderConfirmation
+        restaurantName={restaurantName}
+        tableNumber={tableNumber}
+        orderId={placedOrderId}
+        onOrderAgain={() => setPlacedOrderId(null)}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50 pb-24">
-      {/* Header */}
-      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white px-4 py-3">
-        <h1 className="text-lg font-semibold text-zinc-900">{restaurantName}</h1>
-        <p className="text-sm text-zinc-500">Table {tableNumber}</p>
-      </header>
+      {/* Sticky top chrome: header + optional order bar + category tabs */}
+      <div className="sticky top-0 z-20 bg-white">
+        <header className="border-b border-zinc-200 px-4 py-3">
+          <h1 className="text-lg font-semibold text-zinc-900">{restaurantName}</h1>
+          <p className="text-sm text-zinc-500">Table {tableNumber}</p>
+        </header>
 
-      {/* Category Tabs */}
-      <nav className="sticky top-[61px] z-10 border-b border-zinc-200 bg-white">
-        <div className="flex gap-2 overflow-x-auto px-4 py-2.5 [-webkit-overflow-scrolling:touch]">
-          <CategoryTab
-            label="All"
-            active={activeCategoryId === null}
-            onClick={() => setActiveCategoryId(null)}
-          />
-          {visibleCategories.map((c) => (
+        {activeOrderId && <OrderStatusBar orderId={activeOrderId} />}
+
+        <nav className="border-b border-zinc-200">
+          <div className="flex gap-2 overflow-x-auto px-4 py-2.5 [-webkit-overflow-scrolling:touch]">
             <CategoryTab
-              key={c.id}
-              label={c.name}
-              active={activeCategoryId === c.id}
-              onClick={() => setActiveCategoryId(c.id)}
+              label="All"
+              active={activeCategoryId === null}
+              onClick={() => setActiveCategoryId(null)}
             />
-          ))}
-        </div>
-      </nav>
+            {visibleCategories.map((c) => (
+              <CategoryTab
+                key={c.id}
+                label={c.name}
+                active={activeCategoryId === c.id}
+                onClick={() => setActiveCategoryId(c.id)}
+              />
+            ))}
+          </div>
+        </nav>
+      </div>
 
       {/* Menu grouped by category */}
       <main className="mx-auto max-w-lg px-4 py-4">
@@ -175,8 +233,11 @@ export default function CustomerMenuClient({
         <CartSheet
           lines={[...cart.values()]}
           total={cartTotal}
+          isPlacing={isPlacing}
+          error={checkoutError}
           onAdd={addToCart}
           onRemove={decrementItem}
+          onPlaceOrder={handlePlaceOrder}
           onClose={() => setCartOpen(false)}
         />
       )}
@@ -290,19 +351,234 @@ function QuantityStepper({
   );
 }
 
+// ─── Order Status Bar ─────────────────────────────────────────────────────────
+
+type OrderStatus = "pending" | "preparing" | "served" | "completed" | "cancelled";
+
+const STATUS_LABEL: Record<OrderStatus, string> = {
+  pending: "Received",
+  preparing: "Preparing",
+  served: "Served",
+  completed: "Served",
+  cancelled: "Cancelled",
+};
+
+function OrderStatusBar({ orderId }: { orderId: string }) {
+  const status = useOrderStatus(orderId);
+  const shortId = orderId.slice(-6).toUpperCase();
+  const label = STATUS_LABEL[status] ?? "Received";
+  const inProgress = status === "pending" || status === "preparing";
+
+  const palette =
+    status === "served" || status === "completed"
+      ? "bg-green-50 border-green-200 text-green-800"
+      : status === "preparing"
+        ? "bg-blue-50 border-blue-200 text-blue-800"
+        : status === "cancelled"
+          ? "bg-red-50 border-red-200 text-red-700"
+          : "bg-amber-50 border-amber-200 text-amber-800";
+
+  return (
+    <div className={`flex items-center gap-2 border-b px-4 py-2 text-xs font-medium ${palette}`}>
+      <span
+        className={`h-1.5 w-1.5 shrink-0 rounded-full bg-current ${inProgress ? "animate-pulse" : ""}`}
+      />
+      <span>
+        Order #{shortId} — {label}
+      </span>
+    </div>
+  );
+}
+
+// ─── Order Confirmation ───────────────────────────────────────────────────────
+
+
+const STATUS_STEPS = [
+  { label: "Received", statuses: ["pending"] },
+  { label: "Preparing", statuses: ["preparing"] },
+  { label: "Served", statuses: ["served", "completed"] },
+] as const;
+
+function stepIndexFor(status: OrderStatus): number {
+  const index = STATUS_STEPS.findIndex((s) =>
+    (s.statuses as readonly string[]).includes(status),
+  );
+  return index === -1 ? 0 : index;
+}
+
+function useOrderStatus(orderId: string): OrderStatus {
+  const [status, setStatus] = useState<OrderStatus>("pending");
+  const supabase = useMemo(() => createClient(), []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`order-status-${orderId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `id=eq.${orderId}`,
+        },
+        (payload) => {
+          setStatus((payload.new as { status: OrderStatus }).status);
+        },
+      )
+      .subscribe(async (subscribeStatus) => {
+        // The status may have changed between insert and subscribing —
+        // fetch once to catch up, then rely on Realtime alone.
+        if (subscribeStatus !== "SUBSCRIBED") return;
+        const { data } = await supabase
+          .from("orders")
+          .select("status")
+          .eq("id", orderId)
+          .single();
+        if (data) setStatus(data.status as OrderStatus);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, orderId]);
+
+  return status;
+}
+
+function OrderStatusSteps({ status }: { status: OrderStatus }) {
+  const activeIndex = stepIndexFor(status);
+
+  return (
+    <div className="mt-8 w-full max-w-xs">
+      <div className="flex items-start">
+        {STATUS_STEPS.map((step, i) => {
+          const isDone = i < activeIndex;
+          const isActive = i === activeIndex;
+          return (
+            <div key={step.label} className="contents">
+              {i > 0 && (
+                <div
+                  className={`mx-2 mt-4 h-0.5 flex-1 rounded transition-colors ${
+                    i <= activeIndex ? "bg-green-600" : "bg-zinc-200"
+                  }`}
+                />
+              )}
+              <div className="flex flex-col items-center">
+                <div
+                  className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors ${
+                    isDone || isActive
+                      ? "bg-green-600 text-white"
+                      : "bg-zinc-200 text-zinc-400"
+                  }`}
+                >
+                  {isDone ? (
+                    <svg
+                      className="h-4 w-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    i + 1
+                  )}
+                </div>
+                <span
+                  className={`mt-1.5 text-xs font-medium ${
+                    isDone || isActive ? "text-zinc-900" : "text-zinc-400"
+                  }`}
+                >
+                  {step.label}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function OrderConfirmation({
+  restaurantName,
+  tableNumber,
+  orderId,
+  onOrderAgain,
+}: {
+  restaurantName: string;
+  tableNumber: string;
+  orderId: string;
+  onOrderAgain: () => void;
+}) {
+  const shortOrderNumber = orderId.slice(-6).toUpperCase();
+  const status = useOrderStatus(orderId);
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-6 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-green-100">
+        <svg
+          className="h-7 w-7 text-green-600"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M5 13l4 4L19 7" />
+        </svg>
+      </div>
+      <h1 className="mt-4 text-lg font-semibold text-zinc-900">Order placed!</h1>
+      <p className="mt-1 text-sm text-zinc-500">
+        {restaurantName} · Table {tableNumber}
+      </p>
+      <p className="mt-4 text-sm text-zinc-600">
+        Order number
+        <span className="mt-1 block text-2xl font-bold tracking-wider text-zinc-900">
+          {shortOrderNumber}
+        </span>
+      </p>
+
+      <OrderStatusSteps status={status} />
+
+      <p className="mt-6 max-w-xs text-xs text-zinc-400">
+        {status === "served" || status === "completed"
+          ? "Enjoy your meal!"
+          : "Please stay at your table — this page updates automatically as the kitchen works on your order."}
+      </p>
+      <button
+        onClick={onOrderAgain}
+        className="mt-8 rounded-xl bg-zinc-900 px-6 py-3 text-sm font-medium text-white active:bg-zinc-700 transition-colors"
+      >
+        Order more
+      </button>
+    </div>
+  );
+}
+
 // ─── Cart Sheet ───────────────────────────────────────────────────────────────
 
 function CartSheet({
   lines,
   total,
+  isPlacing,
+  error,
   onAdd,
   onRemove,
+  onPlaceOrder,
   onClose,
 }: {
   lines: CartLine[];
   total: number;
+  isPlacing: boolean;
+  error: string | null;
   onAdd: (item: MenuItem) => void;
   onRemove: (itemId: string) => void;
+  onPlaceOrder: () => void;
   onClose: () => void;
 }) {
   return (
@@ -353,9 +629,18 @@ function CartSheet({
                   {formatPrice(total)}
                 </span>
               </div>
-              <p className="mt-3 text-center text-xs text-zinc-400">
-                Order placement is coming soon — please show your cart to the staff.
-              </p>
+              {error && (
+                <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-center text-xs text-red-600">
+                  {error}
+                </p>
+              )}
+              <button
+                onClick={onPlaceOrder}
+                disabled={isPlacing}
+                className="mt-3 w-full rounded-xl bg-zinc-900 px-5 py-3.5 text-sm font-semibold text-white active:bg-zinc-700 transition-colors disabled:opacity-60"
+              >
+                {isPlacing ? "Placing order…" : "Place Order"}
+              </button>
             </div>
           </>
         )}

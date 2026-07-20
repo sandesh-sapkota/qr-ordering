@@ -46,6 +46,8 @@ export default async function CustomerMenuPage({
     <CustomerMenuClient
       restaurantName={restaurant.name}
       tableNumber={table.table_number}
+      slug={slug}
+      token={token}
       categories={categories ?? []}
       items={items ?? []}
     />
