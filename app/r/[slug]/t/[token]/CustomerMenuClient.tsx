@@ -55,6 +55,7 @@ export default function CustomerMenuClient({
   const sessionKey = `order_id:${token}`;
 
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [cart, setCart] = useState<Map<string, CartLine>>(new Map());
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
@@ -70,15 +71,39 @@ export default function CustomerMenuClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Only show categories that actually contain available items
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
+  const filteredItems = useMemo(() => {
+    if (!normalizedQuery) return items;
+    return items.filter(
+      (i) =>
+        i.name.toLowerCase().includes(normalizedQuery) ||
+        (i.description?.toLowerCase().includes(normalizedQuery) ?? false),
+    );
+  }, [items, normalizedQuery]);
+
+  // Only show categories that actually contain matching available items
   const visibleCategories = useMemo(
-    () => categories.filter((c) => items.some((i) => i.category_id === c.id)),
-    [categories, items],
+    () =>
+      categories.filter((c) =>
+        filteredItems.some((i) => i.category_id === c.id),
+      ),
+    [categories, filteredItems],
   );
 
   const shownCategories = activeCategoryId
     ? visibleCategories.filter((c) => c.id === activeCategoryId)
     : visibleCategories;
+
+  // If the active category has no search matches, fall back to All
+  useEffect(() => {
+    if (
+      activeCategoryId &&
+      !visibleCategories.some((c) => c.id === activeCategoryId)
+    ) {
+      setActiveCategoryId(null);
+    }
+  }, [activeCategoryId, visibleCategories]);
 
   const cartCount = useMemo(
     () => [...cart.values()].reduce((sum, line) => sum + line.quantity, 0),
@@ -174,6 +199,45 @@ export default function CustomerMenuClient({
 
         {activeOrderId && <OrderStatusBar orderId={activeOrderId} />}
 
+        <div className="border-b border-zinc-200 px-4 py-2.5">
+          <label className="relative block">
+            <span className="sr-only">Search menu</span>
+            <svg
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3-3" />
+            </svg>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search menu…"
+              autoComplete="off"
+              className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-9 pr-9 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:bg-white focus:outline-none"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                aria-label="Clear search"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-400 active:bg-zinc-100 active:text-zinc-600"
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 4l8 8M12 4l-8 8" />
+                </svg>
+              </button>
+            )}
+          </label>
+        </div>
+
         <nav className="border-b border-zinc-200">
           <div className="flex gap-2 overflow-x-auto px-4 py-2.5 [-webkit-overflow-scrolling:touch]">
             <CategoryTab
@@ -195,16 +259,20 @@ export default function CustomerMenuClient({
 
       {/* Menu grouped by category */}
       <main className="mx-auto max-w-lg px-4 py-4">
-        {shownCategories.length === 0 ? (
+        {items.length === 0 ? (
           <p className="py-16 text-center text-sm text-zinc-500">
             The menu is empty right now. Please ask the staff for assistance.
+          </p>
+        ) : shownCategories.length === 0 ? (
+          <p className="py-16 text-center text-sm text-zinc-500">
+            No items match &ldquo;{searchQuery.trim()}&rdquo;.
           </p>
         ) : (
           shownCategories.map((category) => (
             <section key={category.id} className="mb-6">
               <h2 className="mb-3 text-base font-semibold text-zinc-900">{category.name}</h2>
               <div className="space-y-3">
-                {items
+                {filteredItems
                   .filter((i) => i.category_id === category.id)
                   .map((item) => (
                     <ItemCard

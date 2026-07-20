@@ -105,39 +105,56 @@ function useNow(intervalMs: number) {
 }
 
 // ─── Audio ────────────────────────────────────────────────────────────────────
+// Browsers block AudioContext until a user gesture. Creating it inside a
+// Realtime callback leaves it suspended forever — unlock on click first.
 
-function playChime(ctxRef: React.MutableRefObject<AudioContext | null>) {
+async function ensureAudioContext(
+  ctxRef: React.MutableRefObject<AudioContext | null>,
+): Promise<AudioContext | null> {
   try {
     if (!ctxRef.current) {
-      ctxRef.current = new AudioContext();
+      const Ctx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext })
+          .webkitAudioContext;
+      ctxRef.current = new Ctx();
     }
     const ctx = ctxRef.current;
     if (ctx.state === "suspended") {
-      ctx.resume().catch(() => undefined);
+      await ctx.resume();
     }
-
-    // Strike a single bell tone: instantaneous attack, long exponential decay.
-    function strike(frequency: number, startTime: number, peakGain: number) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = "sine";
-      osc.frequency.value = frequency;
-      // Hard attack, then slow bell-like decay over ~1.2 s.
-      gain.gain.setValueAtTime(peakGain, startTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, startTime + 1.2);
-      osc.start(startTime);
-      osc.stop(startTime + 1.2);
-    }
-
-    // "Ding" — higher note (E5 ≈ 659 Hz), then "Dong" — lower note (B4 ≈ 494 Hz)
-    // offset by 0.28 s so they overlap softly rather than clashing.
-    strike(659, ctx.currentTime, 0.28);
-    strike(494, ctx.currentTime + 0.28, 0.22);
+    return ctx.state === "running" ? ctx : null;
   } catch {
-    // AudioContext may be unavailable (e.g. during SSR or blocked by policy).
+    return null;
   }
+}
+
+async function playChime(
+  ctxRef: React.MutableRefObject<AudioContext | null>,
+) {
+  const ctx = await ensureAudioContext(ctxRef);
+  if (!ctx) return;
+  const audio = ctx;
+
+  // Strike a single bell tone: instantaneous attack, long exponential decay.
+  function strike(frequency: number, startTime: number, peakGain: number) {
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.connect(gain);
+    gain.connect(audio.destination);
+    osc.type = "sine";
+    osc.frequency.value = frequency;
+    // Hard attack, then slow bell-like decay over ~1.2 s.
+    gain.gain.setValueAtTime(peakGain, startTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 1.2);
+    osc.start(startTime);
+    osc.stop(startTime + 1.2);
+  }
+
+  // "Ding" — higher note (E5 ≈ 659 Hz), then "Dong" — lower note (B4 ≈ 494 Hz)
+  // offset by 0.28 s so they overlap softly rather than clashing.
+  strike(659, audio.currentTime, 0.28);
+  strike(494, audio.currentTime + 0.28, 0.22);
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -164,8 +181,26 @@ export default function OrdersClient({
 
   // Single AudioContext shared across all beeps (browsers allow only a few).
   const audioCtxRef = useRef<AudioContext | null>(null);
+  // True once a user gesture has successfully resumed the AudioContext.
+  const [audioReady, setAudioReady] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
+
+  // Unlock audio on the first click/tap anywhere on the page — required by
+  // browser autoplay policy before playChime can make any sound.
+  useEffect(() => {
+    async function unlock() {
+      const ctx = await ensureAudioContext(audioCtxRef);
+      if (ctx) setAudioReady(true);
+    }
+    const opts = { capture: true, once: true } as const;
+    window.addEventListener("pointerdown", unlock, opts);
+    window.addEventListener("keydown", unlock, opts);
+    return () => {
+      window.removeEventListener("pointerdown", unlock, opts);
+      window.removeEventListener("keydown", unlock, opts);
+    };
+  }, []);
 
   useEffect(() => {
     async function fetchOrder(orderId: string): Promise<Order | null> {
@@ -289,9 +324,38 @@ export default function OrdersClient({
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setMuted((m) => !m)}
-            aria-label={muted ? "Unmute order alerts" : "Mute order alerts"}
-            title={muted ? "Unmute order alerts" : "Mute order alerts"}
+            onClick={async () => {
+              // Mute toggle is a user gesture — unlock audio here so chimes can play.
+              const ctx = await ensureAudioContext(audioCtxRef);
+              if (ctx) setAudioReady(true);
+
+              // First click only unlocks; don't flip into muted.
+              if (!audioReady) {
+                void playChime(audioCtxRef);
+                return;
+              }
+
+              setMuted((m) => {
+                const next = !m;
+                // Brief confirmation chirp when turning sound back on.
+                if (!next && ctx) void playChime(audioCtxRef);
+                return next;
+              });
+            }}
+            aria-label={
+              !audioReady
+                ? "Enable order alert sounds"
+                : muted
+                  ? "Unmute order alerts"
+                  : "Mute order alerts"
+            }
+            title={
+              !audioReady
+                ? "Click to enable order alert sounds"
+                : muted
+                  ? "Unmute order alerts"
+                  : "Mute order alerts"
+            }
             className="flex items-center gap-1.5 rounded-md border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100"
           >
             {muted ? (
@@ -317,7 +381,7 @@ export default function OrdersClient({
                 <path d="M10 3.75a.75.75 0 0 0-1.264-.546L4.703 7H3.167a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h1.536l4.033 3.796A.75.75 0 0 0 10 16.25V3.75ZM15.95 5.05a.75.75 0 0 0-1.06 1.061 5.5 5.5 0 0 1 0 7.778.75.75 0 0 0 1.06 1.06 7 7 0 0 0 0-9.899ZM13.829 7.172a.75.75 0 0 0-1.061 1.06 2.5 2.5 0 0 1 0 3.536.75.75 0 0 0 1.06 1.06 4 4 0 0 0 0-5.656Z" />
               </svg>
             )}
-            {muted ? "Muted" : "Sound On"}
+            {!audioReady ? "Enable Sound" : muted ? "Muted" : "Sound On"}
           </button>
 
           <span className="flex items-center gap-1.5 text-xs text-zinc-500">
