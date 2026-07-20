@@ -20,7 +20,8 @@ async function getAdminContext(): Promise<{ restaurantId: string; slug: string }
 
   if (!data) throw new Error("Admin user not found");
 
-  const slug = (data.restaurants as { slug: string } | null)?.slug ?? "";
+  const slug =
+    (data.restaurants as unknown as { slug: string } | null)?.slug ?? "";
   return { restaurantId: data.restaurant_id, slug };
 }
 

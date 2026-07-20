@@ -18,7 +18,8 @@ export default async function TablesPage() {
 
   if (!adminUser) redirect("/admin/login");
 
-  const slug = (adminUser.restaurants as { slug: string } | null)?.slug ?? "";
+  const slug =
+    (adminUser.restaurants as unknown as { slug: string } | null)?.slug ?? "";
 
   const { data: tables } = await supabase
     .from("tables")
