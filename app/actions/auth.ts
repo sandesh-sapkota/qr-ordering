@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -58,6 +59,83 @@ export async function login(
     error:
       "Your account isn't linked to a restaurant or the platform yet. Contact an administrator.",
   };
+}
+
+export type ForgotPasswordState =
+  | { error: string; success?: undefined }
+  | { success: true; error?: undefined }
+  | undefined;
+
+export async function forgotPassword(
+  _prev: ForgotPasswordState,
+  formData: FormData,
+): Promise<ForgotPasswordState> {
+  const email = (formData.get("email") as string | null)?.trim() ?? "";
+
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+    return { error: "Enter a valid email address." };
+  }
+
+  // Build the redirect origin from the incoming request so the link works on
+  // localhost and in production alike; fall back to the configured site URL.
+  const headerStore = await headers();
+  const host = headerStore.get("host");
+  const proto = headerStore.get("x-forwarded-proto") ?? "http";
+  const origin = host
+    ? `${proto}://${host}`
+    : process.env.NEXT_PUBLIC_SITE_URL!;
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/auth/confirm?next=/admin/reset-password`,
+  });
+
+  // Supabase intentionally doesn't reveal whether the email exists; the only
+  // real failures here are rate limits / config errors, which we do surface.
+  if (error) {
+    return { error: "Could not send the reset email. Try again in a minute." };
+  }
+
+  return { success: true };
+}
+
+export type ResetPasswordState =
+  | { error: string }
+  | { error: null }
+  | undefined;
+
+export async function resetPassword(
+  _prev: ResetPasswordState,
+  formData: FormData,
+): Promise<ResetPasswordState> {
+  const password = formData.get("password") as string;
+  const confirm = formData.get("confirmPassword") as string;
+
+  if (!password || password.length < 8) {
+    return { error: "Password must be at least 8 characters." };
+  }
+  if (password !== confirm) {
+    return { error: "Passwords do not match." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      error:
+        "Your reset link has expired or is invalid. Request a new one from the login page.",
+    };
+  }
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) {
+    return { error: error.message };
+  }
+
+  redirect("/admin/orders?password_reset=1");
 }
 
 export async function logout() {

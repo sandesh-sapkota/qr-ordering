@@ -2,12 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 
-// Handles the link from the invite (and other) emails. Supabase sends the user
-// here with a `token_hash` + `type`, which we exchange for a real session
-// (setting the auth cookies) before forwarding them to `next`. Keeping this
-// server-side means the session lands in httpOnly cookies rather than a URL
-// fragment. Point your invite email template at:
-//   {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/auth/accept-invite
+// Handles the link from the invite, password-recovery, and other auth emails.
+// Supabase sends the user here with a `token_hash` + `type` (e.g. `invite`,
+// `recovery`), which we exchange for a real session (setting the auth cookies)
+// before forwarding them to `next`. Keeping this server-side means the session
+// lands in httpOnly cookies rather than a URL fragment. Email templates:
+//   invite:   {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/auth/accept-invite
+//   recovery: {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/admin/reset-password
+// Default-template recovery emails ({{ .ConfirmationURL }}) instead arrive as
+// `?code=...` on the `redirectTo` URL, handled by the PKCE branch below.
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const token_hash = searchParams.get("token_hash");

@@ -4,9 +4,12 @@ import { createServerClient } from "@supabase/ssr";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Only guard /admin routes; let /admin/login through unauthenticated
+  // Only guard /admin routes; login and forgot-password are public.
+  // /admin/reset-password stays guarded on purpose — it requires the session
+  // established by the recovery-link exchange in /auth/confirm.
   const isAdminRoute = pathname.startsWith("/admin");
-  const isLoginPage = pathname === "/admin/login";
+  const isPublicPage =
+    pathname === "/admin/login" || pathname === "/admin/forgot-password";
 
   if (!isAdminRoute) {
     return NextResponse.next();
@@ -45,8 +48,8 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Unauthenticated user on any /admin page → send to login
-  if (!user && !isLoginPage) {
+  // Unauthenticated user on any guarded /admin page → send to login
+  if (!user && !isPublicPage) {
     return NextResponse.redirect(new URL("/admin/login", request.url));
   }
 

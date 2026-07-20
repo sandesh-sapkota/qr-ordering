@@ -1,8 +1,14 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import OrdersClient, { type Order } from "./OrdersClient";
+import PasswordResetToast from "./PasswordResetToast";
 
-export default async function OrdersPage() {
+export default async function OrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ password_reset?: string }>;
+}) {
+  const { password_reset } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -32,9 +38,12 @@ export default async function OrdersPage() {
     .order("created_at", { ascending: true });
 
   return (
-    <OrdersClient
-      restaurantId={adminUser.restaurant_id}
-      initialOrders={(orders ?? []) as unknown as Order[]}
-    />
+    <>
+      {password_reset === "1" && <PasswordResetToast />}
+      <OrdersClient
+        restaurantId={adminUser.restaurant_id}
+        initialOrders={(orders ?? []) as unknown as Order[]}
+      />
+    </>
   );
 }
