@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { slugify } from "@/lib/slug";
@@ -145,26 +144,29 @@ export async function createRestaurant(
   }
 }
 
-async function getOrigin(): Promise<string> {
-  // Prefer an explicit production URL so invite emails never point at
-  // localhost (common when Site URL / env is still set for local dev).
-  const configured = process.env.NEXT_PUBLIC_SITE_URL;
-  if (configured) return configured.replace(/\/$/, "");
+// Deployed app URL. Invite emails must land here — never on localhost —
+// even if the superadmin is working from a local machine.
+const PRODUCTION_SITE_URL = "https://qr-ordering-five.vercel.app";
 
-  // Vercel sets these on every deployment. Prefer the stable production host
-  // over the per-deploy preview host when inviting from production.
-  const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL;
-  if (productionHost && process.env.VERCEL_ENV === "production") {
-    return `https://${productionHost.replace(/\/$/, "")}`;
+async function getInviteRedirectOrigin(): Promise<string> {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
+  if (configured && !/localhost|127\.0\.0\.1/i.test(configured)) {
+    return configured;
   }
+
+  const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL?.replace(
+    /\/$/,
+    "",
+  );
+  if (productionHost) return `https://${productionHost}`;
+
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL.replace(/\/$/, "")}`;
   }
 
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  return `${proto}://${host}`;
+  // Last resort: known production domain. Do not fall back to request Host —
+  // inviting from http://localhost:3000 would bake localhost into the email.
+  return PRODUCTION_SITE_URL;
 }
 
 // Invite a restaurant owner. Creates their Supabase Auth account and emails a
@@ -204,7 +206,8 @@ export async function inviteAdmin(
     }
 
     const admin = createAdminClient();
-    const origin = await getOrigin();
+    const origin = await getInviteRedirectOrigin();
+    const redirectTo = `${origin}/auth/accept-invite`;
 
     const { error } = await admin.auth.admin.inviteUserByEmail(email, {
       data: {
@@ -216,7 +219,12 @@ export async function inviteAdmin(
       // then redirects here with the session in the URL fragment, which the
       // accept page picks up). If you customize the template to the token-hash
       // form, point it at /auth/confirm?...&next=/auth/accept-invite instead.
-      redirectTo: `${origin}/auth/accept-invite`,
+      //
+      // IMPORTANT: this URL must also be listed under Supabase
+      // Authentication → URL Configuration → Redirect URLs, and Site URL
+      // should be the production domain — otherwise Auth falls back to
+      // http://localhost:3000.
+      redirectTo,
     });
 
     if (error) {

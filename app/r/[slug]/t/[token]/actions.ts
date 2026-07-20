@@ -1,6 +1,5 @@
 "use server";
 
-import { randomUUID } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 
 type CartItemInput = {
@@ -87,33 +86,26 @@ export async function placeOrder(input: {
     0,
   );
 
-  // Generate the id here instead of reading it back with .select() — the
-  // anon SELECT policy only covers recent orders, so don't depend on it here.
-  const orderId = randomUUID();
-
-  const { error: orderError } = await supabase.from("orders").insert({
-    id: orderId,
-    restaurant_id: restaurant.id,
-    table_id: table.id,
-    status: "pending",
-    total_amount: totalPaisa / 100,
-  });
-
-  if (orderError) {
-    return { ok: false, error: "Could not place your order. Please try again." };
-  }
-
-  const { error: itemsError } = await supabase.from("order_items").insert(
-    items.map((i) => ({
-      order_id: orderId,
-      menu_item_id: i.menuItemId,
-      quantity: i.quantity,
-      price_at_order_time: priceById.get(i.menuItemId)!,
-      ...(i.notes?.trim() ? { notes: i.notes.trim() } : {}),
-    })),
+  // Insert the order and its items in a single DB transaction (via RPC) so
+  // Realtime only notifies admins once both are fully committed — doing this
+  // as two separate inserts let the admin dashboard's Realtime-triggered
+  // refetch occasionally beat the order_items insert to the database.
+  const { data: orderId, error: orderError } = await supabase.rpc(
+    "place_order",
+    {
+      p_restaurant_id: restaurant.id,
+      p_table_id: table.id,
+      p_total_amount: totalPaisa / 100,
+      p_items: items.map((i) => ({
+        menu_item_id: i.menuItemId,
+        quantity: i.quantity,
+        price_at_order_time: priceById.get(i.menuItemId)!,
+        notes: i.notes?.trim() || null,
+      })),
+    },
   );
 
-  if (itemsError) {
+  if (orderError || !orderId) {
     return { ok: false, error: "Could not place your order. Please try again." };
   }
 
