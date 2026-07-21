@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import AuthHashRedirect from "./AuthHashRedirect";
 import {
   DEMO_MENU_HREF,
@@ -326,23 +327,15 @@ export default function Home() {
           <div className="grid grid-cols-1 gap-8 md:grid-cols-4">
             {/* Brand & Identity */}
             <div>
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-                <span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-400 text-slate-950">
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2.2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                  >
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <path d="M14 14h3v3M20 14v.01M17 20h.01M20 17v4" />
-                  </svg>
+              <div className="flex items-center gap-2.5 text-sm font-semibold text-slate-100">
+                <span className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full bg-zinc-950 ring-1 ring-white/10">
+                  <Image
+                    src="/landing/sg-thali-mark.png"
+                    alt=""
+                    width={36}
+                    height={36}
+                    className="h-[88%] w-[88%] object-contain"
+                  />
                 </span>
                 SG Thali
               </div>

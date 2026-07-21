@@ -4,6 +4,7 @@
 // user scrolls past ~12px. Nav links have an underline-grow hover effect.
 
 import { motion, useReducedMotion, useScroll } from "framer-motion";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { DEMO_MENU_HREF, GET_PRICING_HREF } from "./shared";
 import { MotionLink } from "./Reveal";
@@ -51,10 +52,18 @@ export default function SiteHeader() {
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
         <a
           href="#top"
-          className="flex items-center gap-2 rounded text-base font-semibold tracking-tight text-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-950"
+          className="flex items-center gap-2.5 rounded text-base font-semibold tracking-tight text-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-950"
         >
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-accent text-zinc-950 shadow-lg shadow-brand-accent/30">
-            <QrGlyph />
+          <span className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full bg-zinc-950 shadow-lg shadow-black/40 ring-1 ring-white/10">
+            {/* Inset so the circular mark (bowl, S/G curves, QR) isn't clipped by the round mask */}
+            <Image
+              src="/landing/sg-thali-mark.png"
+              alt=""
+              width={36}
+              height={36}
+              className="h-[88%] w-[88%] object-contain"
+              priority
+            />
           </span>
           SG&nbsp;Thali
         </a>
@@ -91,25 +100,5 @@ export default function SiteHeader() {
         </div>
       </nav>
     </motion.header>
-  );
-}
-
-function QrGlyph() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <path d="M14 14h3v3M20 14v.01M17 20h.01M20 17v4" />
-    </svg>
   );
 }

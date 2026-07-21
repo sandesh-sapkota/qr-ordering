@@ -5,42 +5,15 @@ const LOGOS = [
     id: "sg-thali",
     name: "SG Thali",
     mark: (
-      <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" aria-hidden>
-        <rect
-          x="3"
-          y="3"
-          width="7"
-          height="7"
-          rx="1"
-          stroke="currentColor"
-          strokeWidth="1.75"
-        />
-        <rect
-          x="14"
-          y="3"
-          width="7"
-          height="7"
-          rx="1"
-          stroke="currentColor"
-          strokeWidth="1.75"
-        />
-        <rect
-          x="3"
-          y="14"
-          width="7"
-          height="7"
-          rx="1"
-          stroke="currentColor"
-          strokeWidth="1.75"
-        />
-        <path
-          d="M14 14h3v3M20 14v.01M17 20h.01M20 17v4"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      // eslint-disable-next-line @next/next/no-img-element -- tiny marquee mark; next/image is overkill here
+      <img
+        src="/landing/sg-thali-mark.png"
+        alt=""
+        width={28}
+        height={28}
+        className="h-7 w-7 shrink-0 rounded-full object-contain"
+        aria-hidden
+      />
     ),
   },
   {

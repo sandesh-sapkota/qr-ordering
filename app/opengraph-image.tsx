@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { ImageResponse } from "next/og";
 
 // Generated social share image (og:image / twitter:image) for the whole app.
@@ -5,7 +7,12 @@ export const alt = "SG Thali — QR ordering for modern restaurants";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-export default function OpengraphImage() {
+export default async function OpengraphImage() {
+  const markData = await readFile(
+    join(process.cwd(), "public/landing/sg-thali-mark.png"),
+  );
+  const markSrc = `data:image/png;base64,${markData.toString("base64")}`;
+
   return new ImageResponse(
     (
       <div
@@ -28,26 +35,24 @@ export default function OpengraphImage() {
           <div
             style={{
               display: "flex",
-              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "center",
               width: 72,
               height: 72,
-              padding: 12,
-              gap: 6,
-              borderRadius: 18,
-              backgroundColor: "#f59e0b", // --brand-accent
+              borderRadius: 9999,
+              overflow: "hidden",
+              backgroundColor: "#09090b",
+              border: "1px solid rgba(255,255,255,0.12)",
             }}
           >
-            {[0, 1, 2, 3].map((i) => (
-              <div
-                key={i}
-                style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: 5,
-                  backgroundColor: i === 3 ? "transparent" : "#1c1005",
-                }}
-              />
-            ))}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={markSrc}
+              alt=""
+              width={64}
+              height={64}
+              style={{ width: 64, height: 64, objectFit: "contain" }}
+            />
           </div>
           <span style={{ fontSize: 40, fontWeight: 700 }}>SG Thali</span>
         </div>
