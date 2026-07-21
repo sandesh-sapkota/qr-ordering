@@ -13,7 +13,7 @@ export default async function CustomerMenuPage({
 
   const { data: restaurant } = await supabase
     .from("restaurants")
-    .select("id, name, slug")
+    .select("id, name, slug, logo_url")
     .eq("slug", slug)
     .single();
 
@@ -45,6 +45,7 @@ export default async function CustomerMenuPage({
   return (
     <CustomerMenuClient
       restaurantName={restaurant.name}
+      restaurantLogoUrl={restaurant.logo_url}
       tableNumber={table.table_number}
       slug={slug}
       token={token}

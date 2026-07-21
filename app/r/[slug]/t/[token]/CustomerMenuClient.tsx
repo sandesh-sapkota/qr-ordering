@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import { createClient } from "@/lib/supabase/client";
 import { placeOrder } from "./actions";
 
@@ -23,22 +29,175 @@ type MenuItem = {
   category_id: string;
 };
 
+type ModifierOption = {
+  id: string;
+  label: string;
+  priceDelta: number;
+};
+
+type ModifierGroup = {
+  id: string;
+  label: string;
+  type: "single" | "multi";
+  options: ModifierOption[];
+  defaultOptionId?: string;
+};
+
+type SelectedModifier = {
+  groupId: string;
+  groupLabel: string;
+  optionId: string;
+  optionLabel: string;
+  priceDelta: number;
+};
+
 type CartLine = {
+  key: string;
   item: MenuItem;
   quantity: number;
   notes: string;
+  modifiers: SelectedModifier[];
+  unitPrice: number;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatPrice(price: number) {
-  return `Rs. ${Number(price).toFixed(2).replace(/\.00$/, "")}`;
+  const n = Number(price);
+  const rounded = Math.round(n * 100) / 100;
+  return `Rs. ${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)}`;
+}
+
+function restaurantInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function categoryNameOf(
+  item: MenuItem,
+  categories: Category[],
+): string {
+  return categories.find((c) => c.id === item.category_id)?.name ?? "";
+}
+
+/** Heuristic modifiers until a real options schema exists. Encoded into order notes. */
+function getModifierGroups(
+  item: MenuItem,
+  categoryName: string,
+): ModifierGroup[] {
+  const haystack = `${item.name} ${categoryName}`.toLowerCase();
+  const isDrink =
+    /drink|chiya|coffee|cola|fanta|beverage|juice|lassi|soda/.test(haystack) ||
+    /drink|beverage/.test(categoryName.toLowerCase());
+
+  if (isDrink) return [];
+
+  const isCustomizable =
+    /momo|noodle|thali|chowmein|keema|bara|burger|pizza|sekwa|sekuwa|grill/.test(
+      haystack,
+    ) || /momo|noodle|thali|breakfast/.test(categoryName.toLowerCase());
+
+  if (!isCustomizable) return [];
+
+  const base = Number(item.price);
+  const halfDelta = -Math.round(base * 0.4);
+
+  const groups: ModifierGroup[] = [
+    {
+      id: "portion",
+      label: "Portion Size",
+      type: "single",
+      defaultOptionId: "full",
+      options: [
+        { id: "half", label: "Half", priceDelta: halfDelta },
+        { id: "full", label: "Full", priceDelta: 0 },
+      ],
+    },
+    {
+      id: "spice",
+      label: "Spice Level",
+      type: "single",
+      defaultOptionId: "medium",
+      options: [
+        { id: "mild", label: "Mild", priceDelta: 0 },
+        { id: "medium", label: "Medium", priceDelta: 0 },
+        { id: "spicy", label: "Spicy", priceDelta: 0 },
+      ],
+    },
+  ];
+
+  if (/momo|noodle|pizza|burger|bara/.test(haystack)) {
+    groups.push({
+      id: "addons",
+      label: "Add-ons",
+      type: "multi",
+      options: [
+        { id: "cheese", label: "Extra Cheese", priceDelta: 50 },
+        { id: "mayo", label: "Extra Mayo", priceDelta: 20 },
+      ],
+    });
+  }
+
+  return groups;
+}
+
+function defaultSelections(groups: ModifierGroup[]): SelectedModifier[] {
+  const selected: SelectedModifier[] = [];
+  for (const group of groups) {
+    if (group.type !== "single") continue;
+    const option =
+      group.options.find((o) => o.id === group.defaultOptionId) ??
+      group.options[0];
+    if (!option) continue;
+    selected.push({
+      groupId: group.id,
+      groupLabel: group.label,
+      optionId: option.id,
+      optionLabel: option.label,
+      priceDelta: option.priceDelta,
+    });
+  }
+  return selected;
+}
+
+function unitPriceFrom(item: MenuItem, modifiers: SelectedModifier[]) {
+  return (
+    Number(item.price) +
+    modifiers.reduce((sum, m) => sum + m.priceDelta, 0)
+  );
+}
+
+function cartKey(itemId: string, modifiers: SelectedModifier[]) {
+  const modPart = [...modifiers]
+    .map((m) => `${m.groupId}:${m.optionId}`)
+    .sort()
+    .join("|");
+  return `${itemId}::${modPart}`;
+}
+
+function modifiersSummary(modifiers: SelectedModifier[]) {
+  if (modifiers.length === 0) return "";
+  return modifiers
+    .map((m) =>
+      m.priceDelta > 0
+        ? `${m.optionLabel} (+${formatPrice(m.priceDelta)})`
+        : m.optionLabel,
+    )
+    .join(" · ");
+}
+
+function buildOrderNotes(modifiers: SelectedModifier[], freeNotes: string) {
+  const parts = [modifiersSummary(modifiers), freeNotes.trim()].filter(Boolean);
+  return parts.join(" — ").slice(0, 200);
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function CustomerMenuClient({
   restaurantName,
+  restaurantLogoUrl,
   tableNumber,
   slug,
   token,
@@ -46,6 +205,7 @@ export default function CustomerMenuClient({
   items,
 }: {
   restaurantName: string;
+  restaurantLogoUrl: string | null;
   tableNumber: string;
   slug: string;
   token: string;
@@ -58,17 +218,16 @@ export default function CustomerMenuClient({
   const [searchQuery, setSearchQuery] = useState("");
   const [cart, setCart] = useState<Map<string, CartLine>>(new Map());
   const [cartOpen, setCartOpen] = useState(false);
+  const [customizing, setCustomizing] = useState<MenuItem | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [placedOrderId, setPlacedOrderId] = useState<string | null>(null);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [isPlacing, startPlacing] = useTransition();
 
-  // Restore the most recent order from this session on mount
   useEffect(() => {
     const stored = sessionStorage.getItem(sessionKey);
     if (stored) setActiveOrderId(stored);
-  // sessionKey is derived from token which never changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -82,7 +241,6 @@ export default function CustomerMenuClient({
     );
   }, [items, normalizedQuery]);
 
-  // Only show categories that actually contain matching available items
   const visibleCategories = useMemo(
     () =>
       categories.filter((c) =>
@@ -95,7 +253,6 @@ export default function CustomerMenuClient({
     ? visibleCategories.filter((c) => c.id === activeCategoryId)
     : visibleCategories;
 
-  // If the active category has no search matches, fall back to All
   useEffect(() => {
     if (
       activeCategoryId &&
@@ -113,41 +270,99 @@ export default function CustomerMenuClient({
   const cartTotal = useMemo(
     () =>
       [...cart.values()].reduce(
-        (sum, line) => sum + Number(line.item.price) * line.quantity,
+        (sum, line) => sum + line.unitPrice * line.quantity,
         0,
       ),
     [cart],
   );
 
-  function addToCart(item: MenuItem) {
+  function quantityForItem(itemId: string) {
+    return [...cart.values()]
+      .filter((line) => line.item.id === itemId)
+      .reduce((sum, line) => sum + line.quantity, 0);
+  }
+
+  function addSimpleItem(item: MenuItem) {
+    const key = cartKey(item.id, []);
     setCart((prev) => {
       const next = new Map(prev);
-      const line = next.get(item.id);
-      next.set(item.id, { item, quantity: (line?.quantity ?? 0) + 1, notes: line?.notes ?? "" });
+      const line = next.get(key);
+      next.set(key, {
+        key,
+        item,
+        quantity: (line?.quantity ?? 0) + 1,
+        notes: line?.notes ?? "",
+        modifiers: [],
+        unitPrice: Number(item.price),
+      });
       return next;
     });
   }
 
-  function setItemNotes(itemId: string, notes: string) {
+  function addConfiguredItem(
+    item: MenuItem,
+    modifiers: SelectedModifier[],
+    quantity: number,
+    freeNotes: string,
+  ) {
+    const key = cartKey(item.id, modifiers);
+    const unitPrice = Math.max(0, unitPriceFrom(item, modifiers));
     setCart((prev) => {
       const next = new Map(prev);
-      const line = next.get(itemId);
-      if (!line) return prev;
-      next.set(itemId, { ...line, notes });
+      const existing = next.get(key);
+      next.set(key, {
+        key,
+        item,
+        quantity: (existing?.quantity ?? 0) + quantity,
+        notes: freeNotes.trim() || existing?.notes || "",
+        modifiers,
+        unitPrice,
+      });
       return next;
     });
   }
 
-  function decrementItem(itemId: string) {
+  function handleAddTap(item: MenuItem) {
+    const groups = getModifierGroups(item, categoryNameOf(item, categories));
+    if (groups.length > 0) {
+      setCustomizing(item);
+      return;
+    }
+    addSimpleItem(item);
+  }
+
+  function incrementLine(key: string) {
     setCart((prev) => {
       const next = new Map(prev);
-      const line = next.get(itemId);
+      const line = next.get(key);
       if (!line) return prev;
-      if (line.quantity <= 1) {
-        next.delete(itemId);
-      } else {
-        next.set(itemId, { ...line, quantity: line.quantity - 1 });
-      }
+      next.set(key, { ...line, quantity: line.quantity + 1 });
+      return next;
+    });
+  }
+
+  function decrementLine(key: string) {
+    setCart((prev) => {
+      const next = new Map(prev);
+      const line = next.get(key);
+      if (!line) return prev;
+      if (line.quantity <= 1) next.delete(key);
+      else next.set(key, { ...line, quantity: line.quantity - 1 });
+      return next;
+    });
+  }
+
+  function decrementSimpleItem(itemId: string) {
+    const key = cartKey(itemId, []);
+    decrementLine(key);
+  }
+
+  function setLineNotes(key: string, notes: string) {
+    setCart((prev) => {
+      const next = new Map(prev);
+      const line = next.get(key);
+      if (!line) return prev;
+      next.set(key, { ...line, notes });
       return next;
     });
   }
@@ -161,7 +376,7 @@ export default function CustomerMenuClient({
         items: [...cart.values()].map((line) => ({
           menuItemId: line.item.id,
           quantity: line.quantity,
-          notes: line.notes,
+          notes: buildOrderNotes(line.modifiers, line.notes),
         })),
       });
 
@@ -189,21 +404,48 @@ export default function CustomerMenuClient({
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 pb-24">
-      {/* Sticky top chrome: header + optional order bar + category tabs */}
-      <div className="sticky top-0 z-20 bg-white">
-        <header className="border-b border-zinc-200 px-4 py-3">
-          <h1 className="text-lg font-semibold text-zinc-900">{restaurantName}</h1>
-          <p className="text-sm text-zinc-500">Table {tableNumber}</p>
+    <div className="min-h-screen bg-[#f7f3ec] pb-28 text-zinc-900">
+      {/* Sticky chrome */}
+      <div className="sticky top-0 z-20 border-b border-amber-900/8 bg-[#f7f3ec]/95 backdrop-blur-md">
+        <header className="px-4 pb-2 pt-4">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 shrink-0 overflow-hidden rounded-full border border-slate-200/80 bg-white shadow-sm md:h-14 md:w-14">
+              {restaurantLogoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={restaurantLogoUrl}
+                  alt={`${restaurantName} logo`}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div
+                  className="flex h-full w-full items-center justify-center bg-amber-50 text-sm font-bold text-amber-600 md:text-base"
+                  aria-hidden
+                >
+                  {restaurantInitials(restaurantName)}
+                </div>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-xl font-bold text-slate-900 md:text-2xl">
+                {restaurantName}
+              </h1>
+              <p className="mt-0.5 truncate text-xs text-slate-500 md:text-sm">
+                Table {tableNumber}
+                <span className="mx-1.5 text-slate-300">•</span>
+                Digital Menu
+              </p>
+            </div>
+          </div>
         </header>
 
         {activeOrderId && <OrderStatusBar orderId={activeOrderId} />}
 
-        <div className="border-b border-zinc-200 px-4 py-2.5">
+        <div className="px-4 pb-2.5">
           <label className="relative block">
             <span className="sr-only">Search menu</span>
             <svg
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -219,16 +461,16 @@ export default function CustomerMenuClient({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search menu…"
+              placeholder="Search dishes…"
               autoComplete="off"
-              className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-9 pr-9 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:bg-white focus:outline-none"
+              className="w-full rounded-2xl border border-zinc-200/80 bg-white py-3 pl-10 pr-10 text-sm text-zinc-900 shadow-sm placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
                 aria-label="Clear search"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-400 active:bg-zinc-100 active:text-zinc-600"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-zinc-400 active:bg-zinc-100 active:text-zinc-600"
               >
                 <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M4 4l8 8M12 4l-8 8" />
@@ -238,15 +480,15 @@ export default function CustomerMenuClient({
           </label>
         </div>
 
-        <nav className="border-b border-zinc-200">
-          <div className="flex gap-2 overflow-x-auto px-4 py-2.5 [-webkit-overflow-scrolling:touch]">
-            <CategoryTab
+        <nav className="pb-3">
+          <div className="flex gap-2 overflow-x-auto px-4 scrollbar-none [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <CategoryPill
               label="All"
               active={activeCategoryId === null}
               onClick={() => setActiveCategoryId(null)}
             />
             {visibleCategories.map((c) => (
-              <CategoryTab
+              <CategoryPill
                 key={c.id}
                 label={c.name}
                 active={activeCategoryId === c.id}
@@ -257,7 +499,6 @@ export default function CustomerMenuClient({
         </nav>
       </div>
 
-      {/* Menu grouped by category */}
       <main className="mx-auto max-w-lg px-4 py-4">
         {items.length === 0 ? (
           <p className="py-16 text-center text-sm text-zinc-500">
@@ -269,66 +510,87 @@ export default function CustomerMenuClient({
           </p>
         ) : (
           shownCategories.map((category) => (
-            <section key={category.id} className="mb-6">
-              <h2 className="mb-3 text-base font-semibold text-zinc-900">{category.name}</h2>
+            <section key={category.id} className="mb-7">
+              <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                {category.name}
+              </h2>
               <div className="space-y-3">
                 {filteredItems
                   .filter((i) => i.category_id === category.id)
-                  .map((item) => (
-                    <ItemCard
-                      key={item.id}
-                      item={item}
-                      quantity={cart.get(item.id)?.quantity ?? 0}
-                      onAdd={() => addToCart(item)}
-                      onRemove={() => decrementItem(item.id)}
-                    />
-                  ))}
+                  .map((item) => {
+                    const groups = getModifierGroups(item, category.name);
+                    const qty = quantityForItem(item.id);
+                    return (
+                      <ItemCard
+                        key={item.id}
+                        item={item}
+                        quantity={qty}
+                        customizable={groups.length > 0}
+                        onAdd={() => handleAddTap(item)}
+                        onRemove={() => decrementSimpleItem(item.id)}
+                        onOpenCustomize={() => setCustomizing(item)}
+                      />
+                    );
+                  })}
               </div>
             </section>
           ))
         )}
       </main>
 
-      {/* Cart bar */}
+      {/* Floating order pill */}
       {cartCount > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white p-3">
-          <div className="mx-auto max-w-lg">
-            <button
-              onClick={() => setCartOpen(true)}
-              className="flex w-full items-center justify-between rounded-xl bg-brand-accent px-5 py-3.5 text-zinc-950 active:brightness-110 transition-[filter]"
-            >
-              <span className="text-sm font-medium">
-                {cartCount} {cartCount === 1 ? "item" : "items"}
-              </span>
-              <span className="text-sm font-semibold">
-                View Cart · {formatPrice(cartTotal)}
-              </span>
-            </button>
-          </div>
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            onClick={() => setCartOpen(true)}
+            className="pointer-events-auto flex w-full max-w-lg items-center justify-between gap-3 rounded-full bg-zinc-950 px-5 py-3.5 text-white shadow-[0_12px_40px_-8px_rgba(0,0,0,0.45)] transition-[transform,filter] active:scale-[0.98] active:brightness-110"
+          >
+            <span className="text-sm font-medium">
+              View Order ({cartCount} {cartCount === 1 ? "item" : "items"})
+            </span>
+            <span className="text-sm font-semibold text-brand-accent">
+              {formatPrice(cartTotal)}
+            </span>
+          </button>
         </div>
       )}
 
-      {/* Cart sheet */}
       {cartOpen && (
         <CartSheet
           lines={[...cart.values()]}
           total={cartTotal}
           isPlacing={isPlacing}
           error={checkoutError}
-          onAdd={addToCart}
-          onRemove={decrementItem}
-          onNotesChange={setItemNotes}
+          onIncrement={incrementLine}
+          onDecrement={decrementLine}
+          onNotesChange={setLineNotes}
           onPlaceOrder={handlePlaceOrder}
           onClose={() => setCartOpen(false)}
+        />
+      )}
+
+      {customizing && (
+        <CustomizeSheet
+          item={customizing}
+          groups={getModifierGroups(
+            customizing,
+            categoryNameOf(customizing, categories),
+          )}
+          onAdd={(modifiers, quantity, freeNotes) => {
+            addConfiguredItem(customizing, modifiers, quantity, freeNotes);
+            setCustomizing(null);
+          }}
+          onClose={() => setCustomizing(null)}
         />
       )}
     </div>
   );
 }
 
-// ─── Category Tab ─────────────────────────────────────────────────────────────
+// ─── Category Pill ────────────────────────────────────────────────────────────
 
-function CategoryTab({
+function CategoryPill({
   label,
   active,
   onClick,
@@ -339,11 +601,12 @@ function CategoryTab({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+      className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
         active
-          ? "bg-brand-accent text-zinc-950"
-          : "bg-zinc-100 text-zinc-600 active:bg-zinc-200"
+          ? "bg-zinc-950 text-white shadow-sm"
+          : "bg-white text-zinc-600 ring-1 ring-zinc-200/80 active:bg-zinc-50"
       }`}
     >
       {label}
@@ -356,47 +619,100 @@ function CategoryTab({
 function ItemCard({
   item,
   quantity,
+  customizable,
   onAdd,
   onRemove,
+  onOpenCustomize,
 }: {
   item: MenuItem;
   quantity: number;
+  customizable: boolean;
   onAdd: () => void;
   onRemove: () => void;
+  onOpenCustomize: () => void;
 }) {
   return (
-    <div className="flex gap-3 rounded-xl border border-zinc-200 bg-white p-3">
-      {item.image_url && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={item.image_url}
-          alt={item.name}
-          loading="lazy"
-          className="h-20 w-20 shrink-0 rounded-lg object-cover"
-        />
-      )}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <h3 className="text-sm font-medium text-zinc-900">{item.name}</h3>
-        {item.description && (
-          <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500">{item.description}</p>
-        )}
-        <div className="mt-auto flex items-center justify-between pt-2">
-          <span className="text-sm font-semibold text-zinc-900">
-            {formatPrice(item.price)}
-          </span>
-          {quantity === 0 ? (
-            <button
-              onClick={onAdd}
-              className="rounded-lg bg-brand-accent px-4 py-2 text-sm font-medium text-zinc-950 active:brightness-110 transition-[filter]"
-            >
-              Add
-            </button>
+    <article
+      className={`overflow-hidden rounded-2xl bg-white shadow-[0_1px_0_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)] ring-1 ring-zinc-950/5 ${
+        customizable ? "cursor-pointer active:bg-zinc-50/80" : ""
+      }`}
+      onClick={customizable ? onOpenCustomize : undefined}
+      onKeyDown={
+        customizable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpenCustomize();
+              }
+            }
+          : undefined
+      }
+      role={customizable ? "button" : undefined}
+      tabIndex={customizable ? 0 : undefined}
+    >
+      <div className="flex gap-3 p-3">
+        <div className="relative h-22 w-22 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
+          {item.image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={item.image_url}
+              alt={item.name}
+              loading="lazy"
+              className="h-full w-full object-cover"
+            />
           ) : (
-            <QuantityStepper quantity={quantity} onAdd={onAdd} onRemove={onRemove} />
+            <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-amber-50 to-orange-100 text-2xl font-semibold text-amber-800/40">
+              {item.name.charAt(0)}
+            </div>
           )}
         </div>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="text-[15px] font-semibold leading-snug text-zinc-950">
+              {item.name}
+            </h3>
+            {customizable && (
+              <span className="mt-0.5 shrink-0 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                Options
+              </span>
+            )}
+          </div>
+          {item.description && (
+            <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-zinc-500">
+              {item.description}
+            </p>
+          )}
+          <div className="mt-auto flex items-center justify-between gap-2 pt-2">
+            <span className="text-[15px] font-bold tabular-nums text-zinc-950">
+              {formatPrice(item.price)}
+            </span>
+
+            {customizable || quantity === 0 ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdd();
+                }}
+                aria-label={`Add ${item.name}`}
+                className="grid h-9 w-9 place-items-center rounded-xl bg-brand-accent text-lg font-bold leading-none text-zinc-950 shadow-sm shadow-amber-500/25 transition-[filter,transform] active:scale-95 active:brightness-110"
+              >
+                +
+              </button>
+            ) : (
+              <div onClick={(e) => e.stopPropagation()}>
+                <QuantityStepper
+                  quantity={quantity}
+                  onAdd={onAdd}
+                  onRemove={onRemove}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -412,22 +728,281 @@ function QuantityStepper({
   onRemove: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1 rounded-lg bg-brand-accent text-zinc-950">
+    <div className="flex items-center rounded-xl bg-brand-accent text-zinc-950 shadow-sm shadow-amber-500/20">
       <button
+        type="button"
         onClick={onRemove}
         aria-label="Remove one"
-        className="px-3 py-2 text-base leading-none active:brightness-95 rounded-l-lg transition-[filter]"
+        className="px-3 py-2 text-base leading-none transition-[filter] active:brightness-95"
       >
         −
       </button>
-      <span className="min-w-5 text-center text-sm font-semibold">{quantity}</span>
+      <span className="min-w-6 text-center text-sm font-bold tabular-nums">
+        {quantity}
+      </span>
       <button
+        type="button"
         onClick={onAdd}
         aria-label="Add one"
-        className="px-3 py-2 text-base leading-none active:brightness-95 rounded-r-lg transition-[filter]"
+        className="px-3 py-2 text-base leading-none transition-[filter] active:brightness-95"
       >
         +
       </button>
+    </div>
+  );
+}
+
+// ─── Customize Sheet ──────────────────────────────────────────────────────────
+
+function CustomizeSheet({
+  item,
+  groups,
+  onAdd,
+  onClose,
+}: {
+  item: MenuItem;
+  groups: ModifierGroup[];
+  onAdd: (
+    modifiers: SelectedModifier[],
+    quantity: number,
+    freeNotes: string,
+  ) => void;
+  onClose: () => void;
+}) {
+  const [selections, setSelections] = useState<SelectedModifier[]>(() =>
+    defaultSelections(groups),
+  );
+  const [quantity, setQuantity] = useState(1);
+  const [freeNotes, setFreeNotes] = useState("");
+
+  const unitPrice = Math.max(0, unitPriceFrom(item, selections));
+  const lineTotal = unitPrice * quantity;
+
+  function selectSingle(group: ModifierGroup, option: ModifierOption) {
+    setSelections((prev) => {
+      const without = prev.filter((s) => s.groupId !== group.id);
+      return [
+        ...without,
+        {
+          groupId: group.id,
+          groupLabel: group.label,
+          optionId: option.id,
+          optionLabel: option.label,
+          priceDelta: option.priceDelta,
+        },
+      ];
+    });
+  }
+
+  function toggleMulti(group: ModifierGroup, option: ModifierOption) {
+    setSelections((prev) => {
+      const exists = prev.some(
+        (s) => s.groupId === group.id && s.optionId === option.id,
+      );
+      if (exists) {
+        return prev.filter(
+          (s) => !(s.groupId === group.id && s.optionId === option.id),
+        );
+      }
+      return [
+        ...prev,
+        {
+          groupId: group.id,
+          groupLabel: group.label,
+          optionId: option.id,
+          optionLabel: option.label,
+          priceDelta: option.priceDelta,
+        },
+      ];
+    });
+  }
+
+  function isSelected(groupId: string, optionId: string) {
+    return selections.some(
+      (s) => s.groupId === groupId && s.optionId === optionId,
+    );
+  }
+
+  return (
+    <SheetShell onClose={onClose}>
+      <div className="flex max-h-[88vh] flex-col">
+        <div className="relative shrink-0">
+          <div className="aspect-video w-full overflow-hidden bg-zinc-100">
+            {item.image_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={item.image_url}
+                alt={item.name}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-amber-50 to-orange-100 text-5xl font-semibold text-amber-800/35">
+                {item.name.charAt(0)}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm active:bg-black/60"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4">
+          <h2 className="text-xl font-semibold tracking-tight text-zinc-950">
+            {item.name}
+          </h2>
+          <p className="mt-1 text-base font-bold text-zinc-950">
+            {formatPrice(item.price)}
+          </p>
+          {item.description && (
+            <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+              {item.description}
+            </p>
+          )}
+
+          <div className="mt-5 space-y-5">
+            {groups.map((group) => (
+              <fieldset key={group.id}>
+                <legend className="mb-2.5 text-sm font-semibold text-zinc-900">
+                  {group.label}
+                </legend>
+                <div className="space-y-2">
+                  {group.options.map((option) => {
+                    const selected = isSelected(group.id, option.id);
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() =>
+                          group.type === "single"
+                            ? selectSingle(group, option)
+                            : toggleMulti(group, option)
+                        }
+                        className={`flex w-full items-center justify-between gap-3 rounded-xl px-3.5 py-3 text-left text-sm transition-colors ${
+                          selected
+                            ? "bg-amber-50 ring-2 ring-brand-accent"
+                            : "bg-zinc-50 ring-1 ring-zinc-200/80 active:bg-zinc-100"
+                        }`}
+                      >
+                        <span className="flex items-center gap-3">
+                          <span
+                            className={`grid h-5 w-5 place-items-center border-2 ${
+                              group.type === "single"
+                                ? "rounded-full"
+                                : "rounded-md"
+                            } ${
+                              selected
+                                ? "border-brand-accent bg-brand-accent text-zinc-950"
+                                : "border-zinc-300 bg-white"
+                            }`}
+                          >
+                            {selected && (
+                              <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                <path d="M2 6l3 3 5-5" />
+                              </svg>
+                            )}
+                          </span>
+                          <span className="font-medium text-zinc-900">
+                            {option.label}
+                          </span>
+                        </span>
+                        <span className="tabular-nums text-zinc-500">
+                          {option.priceDelta === 0
+                            ? group.type === "single"
+                              ? ""
+                              : "Free"
+                            : option.priceDelta > 0
+                              ? `+${formatPrice(option.priceDelta)}`
+                              : formatPrice(option.priceDelta)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            ))}
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-zinc-900">
+                Special requests
+              </span>
+              <textarea
+                value={freeNotes}
+                onChange={(e) => setFreeNotes(e.target.value)}
+                placeholder="e.g. no onion, extra sauce"
+                maxLength={120}
+                rows={2}
+                className="w-full resize-none rounded-xl border border-zinc-200 bg-zinc-50 px-3.5 py-2.5 text-sm text-zinc-800 placeholder:text-zinc-400 focus:border-amber-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t border-zinc-100 bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center rounded-xl bg-zinc-100 text-zinc-950">
+              <button
+                type="button"
+                onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                aria-label="Decrease quantity"
+                className="px-3.5 py-3 text-base leading-none active:opacity-70"
+              >
+                −
+              </button>
+              <span className="min-w-6 text-center text-sm font-bold tabular-nums">
+                {quantity}
+              </span>
+              <button
+                type="button"
+                onClick={() => setQuantity((q) => Math.min(99, q + 1))}
+                aria-label="Increase quantity"
+                className="px-3.5 py-3 text-base leading-none active:opacity-70"
+              >
+                +
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => onAdd(selections, quantity, freeNotes)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand-accent px-4 py-3.5 text-sm font-semibold text-zinc-950 shadow-sm shadow-amber-500/25 transition-[filter,transform] active:scale-[0.99] active:brightness-110"
+            >
+              Add to Order
+              <span className="opacity-50">•</span>
+              {formatPrice(lineTotal)}
+            </button>
+          </div>
+        </div>
+      </div>
+    </SheetShell>
+  );
+}
+
+// ─── Sheet Shell ──────────────────────────────────────────────────────────────
+
+function SheetShell({
+  children,
+  onClose,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="menu-sheet-backdrop fixed inset-0 z-40 flex items-end justify-center bg-black/45"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="menu-sheet-panel w-full max-w-lg overflow-hidden rounded-t-3xl bg-white shadow-2xl">
+        <div className="flex justify-center pt-2.5">
+          <div className="h-1 w-10 rounded-full bg-zinc-200" />
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
@@ -452,15 +1027,15 @@ function OrderStatusBar({ orderId }: { orderId: string }) {
 
   const palette =
     status === "served" || status === "completed"
-      ? "bg-green-50 border-green-200 text-green-800"
+      ? "bg-green-50 text-green-800"
       : status === "preparing"
-        ? "bg-blue-50 border-blue-200 text-blue-800"
+        ? "bg-blue-50 text-blue-800"
         : status === "cancelled"
-          ? "bg-red-50 border-red-200 text-red-700"
-          : "bg-amber-50 border-amber-200 text-amber-800";
+          ? "bg-red-50 text-red-700"
+          : "bg-amber-50 text-amber-900";
 
   return (
-    <div className={`flex items-center gap-2 border-b px-4 py-2 text-xs font-medium ${palette}`}>
+    <div className={`mx-4 mb-2 flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium ${palette}`}>
       <span
         className={`h-1.5 w-1.5 shrink-0 rounded-full bg-current ${inProgress ? "animate-pulse" : ""}`}
       />
@@ -472,7 +1047,6 @@ function OrderStatusBar({ orderId }: { orderId: string }) {
 }
 
 // ─── Order Confirmation ───────────────────────────────────────────────────────
-
 
 const STATUS_STEPS = [
   { label: "Received", statuses: ["pending"] },
@@ -507,8 +1081,6 @@ function useOrderStatus(orderId: string): OrderStatus {
         },
       )
       .subscribe(async (subscribeStatus) => {
-        // The status may have changed between insert and subscribing —
-        // fetch once to catch up, then rely on Realtime alone.
         if (subscribeStatus !== "SUBSCRIBED") return;
         const { data } = await supabase
           .from("orders")
@@ -599,7 +1171,7 @@ function OrderConfirmation({
   const status = useOrderStatus(orderId);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-6 text-center">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[#f7f3ec] px-6 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-full bg-green-100">
         <svg
           className="h-7 w-7 text-green-600"
@@ -632,8 +1204,9 @@ function OrderConfirmation({
           : "Please stay at your table — this page updates automatically as the kitchen works on your order."}
       </p>
       <button
+        type="button"
         onClick={onOrderAgain}
-        className="mt-8 rounded-xl bg-brand-accent px-6 py-3 text-sm font-medium text-zinc-950 active:brightness-110 transition-[filter]"
+        className="mt-8 rounded-xl bg-brand-accent px-6 py-3 text-sm font-medium text-zinc-950 transition-[filter] active:brightness-110"
       >
         Order more
       </button>
@@ -648,8 +1221,8 @@ function CartSheet({
   total,
   isPlacing,
   error,
-  onAdd,
-  onRemove,
+  onIncrement,
+  onDecrement,
   onNotesChange,
   onPlaceOrder,
   onClose,
@@ -658,21 +1231,19 @@ function CartSheet({
   total: number;
   isPlacing: boolean;
   error: string | null;
-  onAdd: (item: MenuItem) => void;
-  onRemove: (itemId: string) => void;
-  onNotesChange: (itemId: string, notes: string) => void;
+  onIncrement: (key: string) => void;
+  onDecrement: (key: string) => void;
+  onNotesChange: (key: string, notes: string) => void;
   onPlaceOrder: () => void;
   onClose: () => void;
 }) {
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-end justify-center bg-black/40"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white">
-        <div className="sticky top-0 flex items-center justify-between border-b border-zinc-100 bg-white px-4 py-3">
-          <h2 className="text-base font-semibold text-zinc-900">Your Cart</h2>
+    <SheetShell onClose={onClose}>
+      <div className="flex max-h-[80vh] flex-col">
+        <div className="flex items-center justify-between px-4 pb-2 pt-1">
+          <h2 className="text-base font-semibold text-zinc-900">Your Order</h2>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close cart"
             className="rounded-lg p-1.5 text-zinc-500 active:bg-zinc-100"
@@ -684,41 +1255,51 @@ function CartSheet({
         </div>
 
         {lines.length === 0 ? (
-          <p className="py-12 text-center text-sm text-zinc-500">Your cart is empty.</p>
+          <p className="py-12 text-center text-sm text-zinc-500">
+            Your order is empty.
+          </p>
         ) : (
           <>
-            <ul className="divide-y divide-zinc-100 px-4">
-              {lines.map(({ item, quantity, notes }) => (
-                <li key={item.id} className="py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-zinc-900">{item.name}</p>
-                      <p className="text-xs text-zinc-500">
-                        {formatPrice(item.price)} × {quantity}
-                      </p>
+            <ul className="min-h-0 flex-1 divide-y divide-zinc-100 overflow-y-auto px-4">
+              {lines.map((line) => {
+                const summary = modifiersSummary(line.modifiers);
+                return (
+                  <li key={line.key} className="py-3.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-zinc-900">
+                          {line.item.name}
+                        </p>
+                        {summary && (
+                          <p className="mt-0.5 text-xs text-zinc-500">{summary}</p>
+                        )}
+                        <p className="mt-0.5 text-xs tabular-nums text-zinc-500">
+                          {formatPrice(line.unitPrice)} × {line.quantity}
+                        </p>
+                      </div>
+                      <QuantityStepper
+                        quantity={line.quantity}
+                        onAdd={() => onIncrement(line.key)}
+                        onRemove={() => onDecrement(line.key)}
+                      />
                     </div>
-                    <QuantityStepper
-                      quantity={quantity}
-                      onAdd={() => onAdd(item)}
-                      onRemove={() => onRemove(item.id)}
+                    <textarea
+                      value={line.notes}
+                      onChange={(e) => onNotesChange(line.key, e.target.value)}
+                      placeholder="Special requests (e.g. no onion)"
+                      maxLength={200}
+                      rows={1}
+                      className="mt-2 w-full resize-none rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
                     />
-                  </div>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => onNotesChange(item.id, e.target.value)}
-                    placeholder="Special requests (e.g. no onion)"
-                    maxLength={200}
-                    rows={1}
-                    className="mt-2 w-full resize-none rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
-                  />
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
 
-            <div className="border-t border-zinc-200 p-4">
+            <div className="border-t border-zinc-100 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium text-zinc-600">Total</span>
-                <span className="text-base font-semibold text-zinc-900">
+                <span className="text-base font-bold tabular-nums text-zinc-900">
                   {formatPrice(total)}
                 </span>
               </div>
@@ -728,9 +1309,10 @@ function CartSheet({
                 </p>
               )}
               <button
+                type="button"
                 onClick={onPlaceOrder}
                 disabled={isPlacing}
-                className="mt-3 w-full rounded-xl bg-brand-accent px-5 py-3.5 text-sm font-semibold text-zinc-950 active:brightness-110 transition-[filter,opacity] disabled:opacity-60"
+                className="mt-3 w-full rounded-xl bg-brand-accent px-5 py-3.5 text-sm font-semibold text-zinc-950 transition-[filter,opacity] active:brightness-110 disabled:opacity-60"
               >
                 {isPlacing ? "Placing order…" : "Place Order"}
               </button>
@@ -738,6 +1320,6 @@ function CartSheet({
           </>
         )}
       </div>
-    </div>
+    </SheetShell>
   );
 }
