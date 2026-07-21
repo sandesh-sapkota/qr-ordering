@@ -44,7 +44,9 @@ export const DEMO_MENU_HREF =
 /** WhatsApp chat for pricing inquiries — no tiers published on the site. */
 export const GET_PRICING_HREF =
   "https://wa.me/9779749392634?text=" +
-  encodeURIComponent("Hi! I'm interested in SG Thali for my restaurant.");
+  encodeURIComponent(
+    "Hello! I'd like to get more information about the pricing plans for SG Thali for my restaurant.",
+  );
 
 export const SECTION =
   "mx-auto max-w-6xl scroll-mt-24 px-5 py-20 sm:px-8 sm:py-24";

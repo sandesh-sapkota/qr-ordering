@@ -375,7 +375,9 @@ export default function Home() {
                 </li>
                 <li>
                   <a
-                    href="#pricing"
+                    href={GET_PRICING_HREF}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="transition-colors hover:text-amber-400"
                   >
                     Pricing
