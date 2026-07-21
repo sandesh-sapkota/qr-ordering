@@ -38,6 +38,27 @@ type MenuItem = {
   category_id: string;
 };
 
+type CustomizationOptionDraft = {
+  key: string;
+  name: string;
+  priceAdjustment: string;
+};
+
+type CustomizationGroupDraft = {
+  key: string;
+  title: string;
+  selectionType: "single" | "multi";
+  isRequired: boolean;
+  options: CustomizationOptionDraft[];
+};
+
+type SavedCustomizationGroup = {
+  title: string;
+  selectionType: "single" | "multi";
+  isRequired: boolean;
+  options: { name: string; priceAdjustment: number }[];
+};
+
 type ModalMode =
   | { type: "addItem"; defaultCategoryId?: string }
   | { type: "editItem"; item: MenuItem }
@@ -45,6 +66,77 @@ type ModalMode =
   | { type: "editCat"; category: Category }
   | { type: "deleteItem"; item: MenuItem }
   | { type: "deleteCat"; category: Category };
+
+function newOptionDraft(
+  partial?: Partial<Omit<CustomizationOptionDraft, "key">>,
+): CustomizationOptionDraft {
+  return {
+    key: crypto.randomUUID(),
+    name: partial?.name ?? "",
+    priceAdjustment: partial?.priceAdjustment ?? "0",
+  };
+}
+
+function newGroupDraft(
+  partial?: Partial<Omit<CustomizationGroupDraft, "key" | "options">> & {
+    options?: CustomizationOptionDraft[];
+  },
+): CustomizationGroupDraft {
+  return {
+    key: crypto.randomUUID(),
+    title: partial?.title ?? "",
+    selectionType: partial?.selectionType ?? "single",
+    isRequired: partial?.isRequired ?? false,
+    options: partial?.options ?? [newOptionDraft()],
+  };
+}
+
+/** Letters/numbers + common menu punctuation — rejects junk like "l;11". */
+const CLEAN_LABEL_RE = /^[\p{L}\p{N}][\p{L}\p{N}\s\-'/&.()]*$/u;
+
+function cleanLabelText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function isCleanLabel(value: string): boolean {
+  return value.length > 0 && CLEAN_LABEL_RE.test(value);
+}
+
+/** Accepts "5", "+5", "-60", "5.00". */
+function parsePriceInput(raw: string): number | null {
+  const cleaned = raw.replace(/,/g, "").trim();
+  if (cleaned === "" || cleaned === "+" || cleaned === "-") return 0;
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100) / 100;
+}
+
+function formatPriceInput(value: number): string {
+  if (value > 0) return `+${value}`;
+  return String(value);
+}
+
+function draftsFromSaved(
+  saved: SavedCustomizationGroup[] | undefined,
+): CustomizationGroupDraft[] {
+  if (!saved || saved.length === 0) return [];
+  return saved.map((g) => {
+    const title = cleanLabelText(g.title);
+    return newGroupDraft({
+      title: isCleanLabel(title) ? title : "",
+      selectionType: g.selectionType,
+      isRequired: g.isRequired,
+      options: g.options.map((o) => {
+        const name = cleanLabelText(o.name);
+        return newOptionDraft({
+          // Drop junk names so the admin can type a real label (e.g. "Little Sugar").
+          name: isCleanLabel(name) ? name : "",
+          priceAdjustment: formatPriceInput(Number(o.priceAdjustment) || 0),
+        });
+      }),
+    });
+  });
+}
 
 // ─── Shared Styles ────────────────────────────────────────────────────────────
 
@@ -139,17 +231,310 @@ function CategoryForm({
   );
 }
 
+// ─── Customizations Editor ────────────────────────────────────────────────────
+
+function CustomizationsEditor({
+  groups,
+  onChange,
+}: {
+  groups: CustomizationGroupDraft[];
+  onChange: (groups: CustomizationGroupDraft[]) => void;
+}) {
+  function updateGroup(
+    key: string,
+    patch: Partial<Omit<CustomizationGroupDraft, "key" | "options">>,
+  ) {
+    onChange(groups.map((g) => (g.key === key ? { ...g, ...patch } : g)));
+  }
+
+  function removeGroup(key: string) {
+    onChange(groups.filter((g) => g.key !== key));
+  }
+
+  function updateOption(
+    groupKey: string,
+    optionKey: string,
+    patch: Partial<Omit<CustomizationOptionDraft, "key">>,
+  ) {
+    onChange(
+      groups.map((g) =>
+        g.key !== groupKey
+          ? g
+          : {
+              ...g,
+              options: g.options.map((o) =>
+                o.key === optionKey ? { ...o, ...patch } : o,
+              ),
+            },
+      ),
+    );
+  }
+
+  function normalizeOptionName(groupKey: string, optionKey: string) {
+    const option = groups
+      .find((g) => g.key === groupKey)
+      ?.options.find((o) => o.key === optionKey);
+    if (!option) return;
+    const cleaned = cleanLabelText(option.name);
+    if (cleaned !== option.name) {
+      updateOption(groupKey, optionKey, { name: cleaned });
+    }
+  }
+
+  function normalizeOptionPrice(groupKey: string, optionKey: string) {
+    const option = groups
+      .find((g) => g.key === groupKey)
+      ?.options.find((o) => o.key === optionKey);
+    if (!option) return;
+    const parsed = parsePriceInput(option.priceAdjustment);
+    const normalized = formatPriceInput(parsed ?? 0);
+    if (normalized !== option.priceAdjustment) {
+      updateOption(groupKey, optionKey, { priceAdjustment: normalized });
+    }
+  }
+
+  function normalizeGroupTitle(key: string) {
+    const group = groups.find((g) => g.key === key);
+    if (!group) return;
+    const cleaned = cleanLabelText(group.title);
+    if (cleaned !== group.title) {
+      updateGroup(key, { title: cleaned });
+    }
+  }
+
+  function addOption(groupKey: string) {
+    onChange(
+      groups.map((g) =>
+        g.key !== groupKey
+          ? g
+          : { ...g, options: [...g.options, newOptionDraft()] },
+      ),
+    );
+  }
+
+  function removeOption(groupKey: string, optionKey: string) {
+    onChange(
+      groups.map((g) =>
+        g.key !== groupKey
+          ? g
+          : {
+              ...g,
+              options:
+                g.options.length <= 1
+                  ? g.options
+                  : g.options.filter((o) => o.key !== optionKey),
+            },
+      ),
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-zinc-900">
+            Item Customizations
+          </h3>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Optional groups like Sugar Level, Portion Size, or Add-ons. Leave
+            empty for a simple add-to-cart item.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange([...groups, newGroupDraft()])}
+          className="shrink-0 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 transition-colors"
+        >
+          + Option Group
+        </button>
+      </div>
+
+      {groups.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-zinc-300 bg-white px-3 py-4 text-center text-xs text-zinc-400">
+          No option groups yet.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {groups.map((group, index) => (
+            <div
+              key={group.key}
+              className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm"
+            >
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                  Group {index + 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeGroup(group.key)}
+                  className="rounded px-2 py-1 text-xs font-medium text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  Remove group
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <Field label="Title" id={`group-title-${group.key}`} required>
+                  <input
+                    id={`group-title-${group.key}`}
+                    type="text"
+                    value={group.title}
+                    onChange={(e) =>
+                      updateGroup(group.key, { title: e.target.value })
+                    }
+                    onBlur={() => normalizeGroupTitle(group.key)}
+                    className={inputCls}
+                    placeholder="e.g. Sugar Level"
+                    maxLength={60}
+                  />
+                </Field>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Type" id={`group-type-${group.key}`}>
+                    <select
+                      id={`group-type-${group.key}`}
+                      value={group.selectionType}
+                      onChange={(e) =>
+                        updateGroup(group.key, {
+                          selectionType: e.target.value as "single" | "multi",
+                        })
+                      }
+                      className={inputCls}
+                    >
+                      <option value="single">Single Choice (Radio)</option>
+                      <option value="multi">Multiple Choice (Checkbox)</option>
+                    </select>
+                  </Field>
+                  <div className="flex items-end pb-0.5">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-700">
+                      <input
+                        type="checkbox"
+                        checked={group.isRequired}
+                        onChange={(e) =>
+                          updateGroup(group.key, {
+                            isRequired: e.target.checked,
+                          })
+                        }
+                        className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500/30"
+                      />
+                      Required
+                    </label>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-zinc-700">
+                      Options
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => addOption(group.key)}
+                      className="text-xs font-medium text-zinc-600 hover:text-zinc-900"
+                    >
+                      + Add option
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-[1fr_7rem_2rem] items-center gap-2 px-0.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+                      Choice name
+                    </span>
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+                      Price
+                    </span>
+                    <span className="sr-only">Remove</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {group.options.map((option) => (
+                      <div
+                        key={option.key}
+                        className="grid grid-cols-[1fr_7rem_2rem] items-center gap-2"
+                      >
+                        <input
+                          type="text"
+                          value={option.name}
+                          onChange={(e) =>
+                            updateOption(group.key, option.key, {
+                              name: e.target.value,
+                            })
+                          }
+                          onBlur={() =>
+                            normalizeOptionName(group.key, option.key)
+                          }
+                          className={inputCls}
+                          placeholder="e.g. Little Sugar"
+                          aria-label="Choice name"
+                          maxLength={60}
+                        />
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={option.priceAdjustment}
+                          onChange={(e) =>
+                            updateOption(group.key, option.key, {
+                              priceAdjustment: e.target.value,
+                            })
+                          }
+                          onBlur={() =>
+                            normalizeOptionPrice(group.key, option.key)
+                          }
+                          className={`${inputCls} text-right tabular-nums`}
+                          placeholder="+5"
+                          aria-label="Price adjustment"
+                          title="Price adjustment (e.g. 0, +5, -60)"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeOption(group.key, option.key)}
+                          disabled={group.options.length <= 1}
+                          aria-label="Remove option"
+                          className="grid h-9 w-8 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-red-500 disabled:opacity-30 transition-colors"
+                        >
+                          <svg
+                            className="h-4 w-4"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-zinc-400">
+                    Example: name &ldquo;Little Sugar&rdquo;, price{" "}
+                    <span className="font-medium text-zinc-500">+5</span> (added
+                    to base price). Use 0 for no change.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Item Form ────────────────────────────────────────────────────────────────
 
 function ItemForm({
   item,
   categories,
   defaultCategoryId,
+  initialCustomizations,
   onClose,
 }: {
   item: MenuItem | null;
   categories: Category[];
   defaultCategoryId?: string;
+  initialCustomizations?: SavedCustomizationGroup[];
   onClose: () => void;
 }) {
   const action = item ? updateMenuItem : createMenuItem;
@@ -160,6 +545,9 @@ function ItemForm({
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageRemoved, setImageRemoved] = useState(false);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const [customizationGroups, setCustomizationGroups] = useState(() =>
+    draftsFromSaved(initialCustomizations),
+  );
 
   // Build/revoke an object URL preview whenever the chosen file changes.
   useEffect(() => {
@@ -191,6 +579,18 @@ function ItemForm({
 
   const hasImage = !!imagePreview || !!imageUrl;
 
+  const customizationsJson = JSON.stringify(
+    customizationGroups.map((g) => ({
+      title: cleanLabelText(g.title),
+      selectionType: g.selectionType,
+      isRequired: g.isRequired,
+      options: g.options.map((o) => ({
+        name: cleanLabelText(o.name),
+        priceAdjustment: parsePriceInput(o.priceAdjustment) ?? 0,
+      })),
+    })),
+  );
+
   useEffect(() => {
     if (state?.error === null) onClose();
   }, [state, onClose]);
@@ -198,6 +598,7 @@ function ItemForm({
   return (
     <form action={formAction} className="space-y-4">
       {item && <input type="hidden" name="id" value={item.id} />}
+      <input type="hidden" name="customizations" value={customizationsJson} />
       <Field label="Item Name" id="name" required>
         <input
           id="name"
@@ -311,6 +712,12 @@ function ItemForm({
           placeholder="https://…"
         />
       </Field>
+
+      <CustomizationsEditor
+        groups={customizationGroups}
+        onChange={setCustomizationGroups}
+      />
+
       {state?.error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
           {state.error}
@@ -334,10 +741,12 @@ function Modal({
   title,
   onClose,
   children,
+  wide,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  wide?: boolean;
 }) {
   return (
     <div
@@ -346,8 +755,12 @@ function Modal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-        <div className="mb-5 flex items-center justify-between">
+      <div
+        className={`flex w-full flex-col rounded-xl bg-white p-6 shadow-2xl ${
+          wide ? "max-h-[90vh] max-w-lg" : "max-w-md"
+        }`}
+      >
+        <div className="mb-5 flex shrink-0 items-center justify-between">
           <h2 className="text-lg font-semibold text-zinc-900">{title}</h2>
           <button
             onClick={onClose}
@@ -362,7 +775,9 @@ function Modal({
             </svg>
           </button>
         </div>
-        {children}
+        <div className={wide ? "min-h-0 overflow-y-auto pr-1" : undefined}>
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -438,9 +853,11 @@ function DeleteConfirm({
 export default function MenuClient({
   categories,
   items,
+  customizationsByItemId,
 }: {
   categories: Category[];
   items: MenuItem[];
+  customizationsByItemId: Record<string, SavedCustomizationGroup[]>;
 }) {
   const [modal, setModal] = useState<ModalMode | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -663,8 +1080,9 @@ export default function MenuClient({
       {/* ── Modals ──────────────────────────────────────────────────────────── */}
 
       {modal?.type === "addItem" && (
-        <Modal title="Add Menu Item" onClose={closeModal}>
+        <Modal title="Add Menu Item" onClose={closeModal} wide>
           <ItemForm
+            key="new-item"
             item={null}
             categories={categories}
             defaultCategoryId={modal.defaultCategoryId}
@@ -674,10 +1092,12 @@ export default function MenuClient({
       )}
 
       {modal?.type === "editItem" && (
-        <Modal title="Edit Menu Item" onClose={closeModal}>
+        <Modal title="Edit Menu Item" onClose={closeModal} wide>
           <ItemForm
+            key={modal.item.id}
             item={modal.item}
             categories={categories}
+            initialCustomizations={customizationsByItemId[modal.item.id]}
             onClose={closeModal}
           />
         </Modal>

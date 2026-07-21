@@ -76,6 +76,169 @@ async function getRestaurantId(): Promise<string> {
   return data.restaurant_id;
 }
 
+// ─── Customizations ───────────────────────────────────────────────────────────
+
+export type CustomizationOptionInput = {
+  name: string;
+  priceAdjustment: number;
+};
+
+export type CustomizationGroupInput = {
+  title: string;
+  selectionType: "single" | "multi";
+  isRequired: boolean;
+  options: CustomizationOptionInput[];
+};
+
+function parseCustomizations(
+  formData: FormData,
+): { groups: CustomizationGroupInput[] } | { error: string } {
+  const raw = formData.get("customizations");
+  if (raw == null || raw === "") return { groups: [] };
+  if (typeof raw !== "string") return { error: "Invalid customizations payload." };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { error: "Invalid customizations payload." };
+  }
+
+  if (!Array.isArray(parsed)) return { error: "Invalid customizations payload." };
+
+  // Letters/numbers plus common menu punctuation — rejects junk like "l;11".
+  const CLEAN_LABEL = /^[\p{L}\p{N}][\p{L}\p{N}\s\-'/&.()]*$/u;
+
+  function cleanLabel(value: unknown): string {
+    if (typeof value !== "string") return "";
+    return value.replace(/\s+/g, " ").trim();
+  }
+
+  const groups: CustomizationGroupInput[] = [];
+
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") {
+      return { error: "Invalid customizations payload." };
+    }
+    const g = entry as Record<string, unknown>;
+    const title = cleanLabel(g.title);
+    const selectionType = g.selectionType;
+    const isRequired = Boolean(g.isRequired);
+    const optionsRaw = g.options;
+
+    if (!title) continue; // skip empty drafts
+    if (!CLEAN_LABEL.test(title)) {
+      return {
+        error: `Group title “${title}” has invalid characters. Use letters, numbers, and basic punctuation only.`,
+      };
+    }
+    if (selectionType !== "single" && selectionType !== "multi") {
+      return { error: "Each option group must be Single or Multiple choice." };
+    }
+    if (!Array.isArray(optionsRaw)) {
+      return { error: "Each option group needs a list of choices." };
+    }
+
+    const options: CustomizationOptionInput[] = [];
+    for (const opt of optionsRaw) {
+      if (!opt || typeof opt !== "object") {
+        return { error: "Invalid option in a customization group." };
+      }
+      const o = opt as Record<string, unknown>;
+      const name = cleanLabel(o.name);
+      if (!name) continue;
+
+      if (!CLEAN_LABEL.test(name)) {
+        return {
+          error: `Choice “${name}” has invalid characters. Use letters, numbers, and basic punctuation only.`,
+        };
+      }
+
+      const priceRaw =
+        typeof o.priceAdjustment === "string"
+          ? o.priceAdjustment.trim()
+          : o.priceAdjustment;
+      const priceParsed =
+        priceRaw === "" || priceRaw == null
+          ? 0
+          : Number(
+              typeof priceRaw === "string"
+                ? priceRaw.replace(/,/g, "")
+                : priceRaw,
+            );
+      if (!Number.isFinite(priceParsed)) {
+        return { error: `Invalid price adjustment for “${name}”.` };
+      }
+      options.push({
+        name,
+        priceAdjustment: Math.round(priceParsed * 100) / 100,
+      });
+    }
+
+    if (options.length === 0) {
+      return {
+        error: `Option group “${title}” needs at least one choice.`,
+      };
+    }
+
+    groups.push({ title, selectionType, isRequired, options });
+  }
+
+  return { groups };
+}
+
+async function replaceItemCustomizations(
+  restaurantId: string,
+  menuItemId: string,
+  groups: CustomizationGroupInput[],
+): Promise<{ error: string } | null> {
+  const supabase = await createClient();
+
+  const { error: deleteError } = await supabase
+    .from("menu_item_option_groups")
+    .delete()
+    .eq("menu_item_id", menuItemId)
+    .eq("restaurant_id", restaurantId);
+
+  if (deleteError) return { error: deleteError.message };
+
+  for (let gi = 0; gi < groups.length; gi++) {
+    const group = groups[gi];
+    const { data: insertedGroup, error: groupError } = await supabase
+      .from("menu_item_option_groups")
+      .insert({
+        restaurant_id: restaurantId,
+        menu_item_id: menuItemId,
+        title: group.title,
+        selection_type: group.selectionType,
+        is_required: group.isRequired,
+        display_order: gi,
+      })
+      .select("id")
+      .single();
+
+    if (groupError || !insertedGroup) {
+      return { error: groupError?.message ?? "Failed to save option group." };
+    }
+
+    const { error: optionsError } = await supabase
+      .from("menu_item_options")
+      .insert(
+        group.options.map((opt, oi) => ({
+          restaurant_id: restaurantId,
+          group_id: insertedGroup.id,
+          name: opt.name,
+          price_adjustment: opt.priceAdjustment,
+          display_order: oi,
+        })),
+      );
+
+    if (optionsError) return { error: optionsError.message };
+  }
+
+  return null;
+}
+
 // ─── Category Actions ─────────────────────────────────────────────────────────
 
 export async function createCategory(
@@ -168,18 +331,34 @@ export async function createMenuItem(
     const imageResult = await resolveImageUrl(formData);
     if ("error" in imageResult) return { error: imageResult.error };
 
+    const customizations = parseCustomizations(formData);
+    if ("error" in customizations) return { error: customizations.error };
+
     const supabase = await createClient();
-    const { error } = await supabase.from("menu_items").insert({
-      restaurant_id: restaurantId,
-      category_id: categoryId,
-      name,
-      description: (formData.get("description") as string)?.trim() || null,
-      price,
-      image_url: imageResult.url,
-      display_order: parseInt(formData.get("display_order") as string) || 0,
-      is_available: true,
-    });
-    if (error) return { error: error.message };
+    const { data: inserted, error } = await supabase
+      .from("menu_items")
+      .insert({
+        restaurant_id: restaurantId,
+        category_id: categoryId,
+        name,
+        description: (formData.get("description") as string)?.trim() || null,
+        price,
+        image_url: imageResult.url,
+        display_order: parseInt(formData.get("display_order") as string) || 0,
+        is_available: true,
+      })
+      .select("id")
+      .single();
+    if (error || !inserted) {
+      return { error: error?.message ?? "Failed to create menu item." };
+    }
+
+    const customError = await replaceItemCustomizations(
+      restaurantId,
+      inserted.id,
+      customizations.groups,
+    );
+    if (customError) return customError;
 
     revalidatePath("/admin/menu");
     return { error: null };
@@ -207,6 +386,9 @@ export async function updateMenuItem(
     const imageResult = await resolveImageUrl(formData);
     if ("error" in imageResult) return { error: imageResult.error };
 
+    const customizations = parseCustomizations(formData);
+    if ("error" in customizations) return { error: customizations.error };
+
     const supabase = await createClient();
     const { error } = await supabase
       .from("menu_items")
@@ -221,6 +403,13 @@ export async function updateMenuItem(
       .eq("id", id)
       .eq("restaurant_id", restaurantId);
     if (error) return { error: error.message };
+
+    const customError = await replaceItemCustomizations(
+      restaurantId,
+      id,
+      customizations.groups,
+    );
+    if (customError) return customError;
 
     revalidatePath("/admin/menu");
     return { error: null };

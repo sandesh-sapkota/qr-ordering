@@ -39,8 +39,8 @@ type ModifierGroup = {
   id: string;
   label: string;
   type: "single" | "multi";
+  required: boolean;
   options: ModifierOption[];
-  defaultOptionId?: string;
 };
 
 type SelectedModifier = {
@@ -68,6 +68,54 @@ function formatPrice(price: number) {
   return `Rs. ${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)}`;
 }
 
+/** Extract a clean display label from option name / label fields. */
+function sanitizeOptionLabel(raw: unknown, fallback = "Option"): string {
+  let value: unknown = raw;
+
+  // Tolerate accidental nested shapes like { name: "Mild" }.
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.name === "string") value = obj.name;
+    else if (typeof obj.label === "string") value = obj.label;
+    else return fallback;
+  }
+
+  if (typeof value !== "string") {
+    if (value == null) return fallback;
+    value = String(value);
+  }
+
+  let s = (value as string)
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (
+    !s ||
+    s === "[object Object]" ||
+    s.startsWith("{") ||
+    s.startsWith("[")
+  ) {
+    return fallback;
+  }
+
+  // Reject junk like "l;11" — keep only readable menu labels.
+  if (!/^[\p{L}\p{N}][\p{L}\p{N}\s\-'/&.()]*$/u.test(s)) {
+    return fallback;
+  }
+
+  return s;
+}
+
+/** Price modifier badge text, or null when the badge should be hidden. */
+function formatPriceModifier(delta: unknown): string | null {
+  const n = Number(delta);
+  if (!Number.isFinite(n) || n === 0) return null;
+  const abs = Math.abs(Math.round(n * 100) / 100);
+  const amount = abs % 1 === 0 ? abs.toFixed(0) : abs.toFixed(2);
+  return n > 0 ? `+Rs. ${amount}` : `-Rs. ${amount}`;
+}
+
 function restaurantInitials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -75,91 +123,34 @@ function restaurantInitials(name: string) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function categoryNameOf(
-  item: MenuItem,
-  categories: Category[],
-): string {
-  return categories.find((c) => c.id === item.category_id)?.name ?? "";
-}
-
-/** Heuristic modifiers until a real options schema exists. Encoded into order notes. */
-function getModifierGroups(
-  item: MenuItem,
-  categoryName: string,
-): ModifierGroup[] {
-  const haystack = `${item.name} ${categoryName}`.toLowerCase();
-  const isDrink =
-    /drink|chiya|coffee|cola|fanta|beverage|juice|lassi|soda/.test(haystack) ||
-    /drink|beverage/.test(categoryName.toLowerCase());
-
-  if (isDrink) return [];
-
-  const isCustomizable =
-    /momo|noodle|thali|chowmein|keema|bara|burger|pizza|sekwa|sekuwa|grill/.test(
-      haystack,
-    ) || /momo|noodle|thali|breakfast/.test(categoryName.toLowerCase());
-
-  if (!isCustomizable) return [];
-
-  const base = Number(item.price);
-  const halfDelta = -Math.round(base * 0.4);
-
-  const groups: ModifierGroup[] = [
-    {
-      id: "portion",
-      label: "Portion Size",
-      type: "single",
-      defaultOptionId: "full",
-      options: [
-        { id: "half", label: "Half", priceDelta: halfDelta },
-        { id: "full", label: "Full", priceDelta: 0 },
-      ],
-    },
-    {
-      id: "spice",
-      label: "Spice Level",
-      type: "single",
-      defaultOptionId: "medium",
-      options: [
-        { id: "mild", label: "Mild", priceDelta: 0 },
-        { id: "medium", label: "Medium", priceDelta: 0 },
-        { id: "spicy", label: "Spicy", priceDelta: 0 },
-      ],
-    },
-  ];
-
-  if (/momo|noodle|pizza|burger|bara/.test(haystack)) {
-    groups.push({
-      id: "addons",
-      label: "Add-ons",
-      type: "multi",
-      options: [
-        { id: "cheese", label: "Extra Cheese", priceDelta: 50 },
-        { id: "mayo", label: "Extra Mayo", priceDelta: 20 },
-      ],
-    });
-  }
-
-  return groups;
-}
-
 function defaultSelections(groups: ModifierGroup[]): SelectedModifier[] {
   const selected: SelectedModifier[] = [];
   for (const group of groups) {
     if (group.type !== "single") continue;
-    const option =
-      group.options.find((o) => o.id === group.defaultOptionId) ??
-      group.options[0];
+    // Required single-choice groups start with first option selected;
+    // optional single-choice groups start empty until the customer picks.
+    if (!group.required) continue;
+    const option = group.options[0];
     if (!option) continue;
     selected.push({
       groupId: group.id,
       groupLabel: group.label,
       optionId: option.id,
-      optionLabel: option.label,
+      optionLabel: sanitizeOptionLabel(option.label),
       priceDelta: option.priceDelta,
     });
   }
   return selected;
+}
+
+function missingRequiredGroups(
+  groups: ModifierGroup[],
+  selections: SelectedModifier[],
+): string[] {
+  return groups
+    .filter((g) => g.required)
+    .filter((g) => !selections.some((s) => s.groupId === g.id))
+    .map((g) => g.label);
 }
 
 function unitPriceFrom(item: MenuItem, modifiers: SelectedModifier[]) {
@@ -180,11 +171,11 @@ function cartKey(itemId: string, modifiers: SelectedModifier[]) {
 function modifiersSummary(modifiers: SelectedModifier[]) {
   if (modifiers.length === 0) return "";
   return modifiers
-    .map((m) =>
-      m.priceDelta > 0
-        ? `${m.optionLabel} (+${formatPrice(m.priceDelta)})`
-        : m.optionLabel,
-    )
+    .map((m) => {
+      const label = sanitizeOptionLabel(m.optionLabel);
+      const badge = formatPriceModifier(m.priceDelta);
+      return badge ? `${label} (${badge})` : label;
+    })
     .join(" · ");
 }
 
@@ -203,6 +194,7 @@ export default function CustomerMenuClient({
   token,
   categories,
   items,
+  modifierGroupsByItemId,
 }: {
   restaurantName: string;
   restaurantLogoUrl: string | null;
@@ -211,6 +203,7 @@ export default function CustomerMenuClient({
   token: string;
   categories: Category[];
   items: MenuItem[];
+  modifierGroupsByItemId: Record<string, ModifierGroup[]>;
 }) {
   const sessionKey = `order_id:${token}`;
 
@@ -229,6 +222,10 @@ export default function CustomerMenuClient({
     if (stored) setActiveOrderId(stored);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function groupsFor(itemId: string): ModifierGroup[] {
+    return modifierGroupsByItemId[itemId] ?? [];
+  }
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
 
@@ -323,7 +320,7 @@ export default function CustomerMenuClient({
   }
 
   function handleAddTap(item: MenuItem) {
-    const groups = getModifierGroups(item, categoryNameOf(item, categories));
+    const groups = groupsFor(item.id);
     if (groups.length > 0) {
       setCustomizing(item);
       return;
@@ -377,6 +374,7 @@ export default function CustomerMenuClient({
           menuItemId: line.item.id,
           quantity: line.quantity,
           notes: buildOrderNotes(line.modifiers, line.notes),
+          optionIds: line.modifiers.map((m) => m.optionId),
         })),
       });
 
@@ -518,7 +516,7 @@ export default function CustomerMenuClient({
                 {filteredItems
                   .filter((i) => i.category_id === category.id)
                   .map((item) => {
-                    const groups = getModifierGroups(item, category.name);
+                    const groups = groupsFor(item.id);
                     const qty = quantityForItem(item.id);
                     return (
                       <ItemCard
@@ -573,10 +571,7 @@ export default function CustomerMenuClient({
       {customizing && (
         <CustomizeSheet
           item={customizing}
-          groups={getModifierGroups(
-            customizing,
-            categoryNameOf(customizing, categories),
-          )}
+          groups={groupsFor(customizing.id)}
           onAdd={(modifiers, quantity, freeNotes) => {
             addConfiguredItem(customizing, modifiers, quantity, freeNotes);
             setCustomizing(null);
@@ -774,11 +769,13 @@ function CustomizeSheet({
   );
   const [quantity, setQuantity] = useState(1);
   const [freeNotes, setFreeNotes] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const unitPrice = Math.max(0, unitPriceFrom(item, selections));
   const lineTotal = unitPrice * quantity;
 
   function selectSingle(group: ModifierGroup, option: ModifierOption) {
+    setValidationError(null);
     setSelections((prev) => {
       const without = prev.filter((s) => s.groupId !== group.id);
       return [
@@ -787,7 +784,7 @@ function CustomizeSheet({
           groupId: group.id,
           groupLabel: group.label,
           optionId: option.id,
-          optionLabel: option.label,
+          optionLabel: sanitizeOptionLabel(option.label),
           priceDelta: option.priceDelta,
         },
       ];
@@ -795,6 +792,7 @@ function CustomizeSheet({
   }
 
   function toggleMulti(group: ModifierGroup, option: ModifierOption) {
+    setValidationError(null);
     setSelections((prev) => {
       const exists = prev.some(
         (s) => s.groupId === group.id && s.optionId === option.id,
@@ -810,7 +808,7 @@ function CustomizeSheet({
           groupId: group.id,
           groupLabel: group.label,
           optionId: option.id,
-          optionLabel: option.label,
+          optionLabel: sanitizeOptionLabel(option.label),
           priceDelta: option.priceDelta,
         },
       ];
@@ -821,6 +819,15 @@ function CustomizeSheet({
     return selections.some(
       (s) => s.groupId === groupId && s.optionId === optionId,
     );
+  }
+
+  function handleAdd() {
+    const missing = missingRequiredGroups(groups, selections);
+    if (missing.length > 0) {
+      setValidationError(`Please choose: ${missing.join(", ")}`);
+      return;
+    }
+    onAdd(selections, quantity, freeNotes);
   }
 
   return (
@@ -869,12 +876,22 @@ function CustomizeSheet({
           <div className="mt-5 space-y-5">
             {groups.map((group) => (
               <fieldset key={group.id}>
-                <legend className="mb-2.5 text-sm font-semibold text-zinc-900">
+                <legend className="mb-2.5 flex items-center gap-2 text-sm font-semibold text-zinc-900">
                   {group.label}
+                  {group.required ? (
+                    <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                      Required
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                      Optional
+                    </span>
+                  )}
                 </legend>
                 <div className="space-y-2">
                   {group.options.map((option) => {
                     const selected = isSelected(group.id, option.id);
+                    const priceBadge = formatPriceModifier(option.priceDelta);
                     return (
                       <button
                         key={option.id}
@@ -909,18 +926,14 @@ function CustomizeSheet({
                             )}
                           </span>
                           <span className="font-medium text-zinc-900">
-                            {option.label}
+                            {sanitizeOptionLabel(option.label)}
                           </span>
                         </span>
-                        <span className="tabular-nums text-zinc-500">
-                          {option.priceDelta === 0
-                            ? group.type === "single"
-                              ? ""
-                              : "Free"
-                            : option.priceDelta > 0
-                              ? `+${formatPrice(option.priceDelta)}`
-                              : formatPrice(option.priceDelta)}
-                        </span>
+                        {priceBadge && (
+                          <span className="text-sm font-medium tabular-nums text-slate-500">
+                            {priceBadge}
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -945,6 +958,11 @@ function CustomizeSheet({
         </div>
 
         <div className="shrink-0 border-t border-zinc-100 bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+          {validationError && (
+            <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-center text-xs text-red-600">
+              {validationError}
+            </p>
+          )}
           <div className="flex items-center gap-3">
             <div className="flex items-center rounded-xl bg-zinc-100 text-zinc-950">
               <button
@@ -969,7 +987,7 @@ function CustomizeSheet({
             </div>
             <button
               type="button"
-              onClick={() => onAdd(selections, quantity, freeNotes)}
+              onClick={handleAdd}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand-accent px-4 py-3.5 text-sm font-semibold text-zinc-950 shadow-sm shadow-amber-500/25 transition-[filter,transform] active:scale-[0.99] active:brightness-110"
             >
               Add to Order
