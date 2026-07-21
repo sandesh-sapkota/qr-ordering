@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Bar,
   BarChart,
@@ -13,6 +19,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { fetchCompletedOrders } from "@/app/actions/dashboard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -416,8 +423,8 @@ export default function DashboardClient({
           </div>
         </section>
 
-        {/* Completed today */}
-        <CompletedTable orders={completedToday} />
+        {/* Completed orders — date-filterable */}
+        <CompletedTable initialOrders={completedToday} />
       </main>
     </div>
   );
@@ -597,7 +604,7 @@ function ActiveIcon() {
   );
 }
 
-// ─── Completed Today table ────────────────────────────────────────────────────
+// ─── Completed orders table (date-filtered) ───────────────────────────────────
 
 const COMPLETED_COLUMNS: { key: SortKey; label: string; align: string }[] = [
   { key: "time", label: "Time", align: "text-left" },
@@ -606,9 +613,142 @@ const COMPLETED_COLUMNS: { key: SortKey; label: string; align: string }[] = [
   { key: "total", label: "Total", align: "text-right" },
 ];
 
-function CompletedTable({ orders }: { orders: DashboardOrder[] }) {
+type DateFilter = "today" | "yesterday" | "last7" | "custom";
+
+const FILTER_OPTIONS: { value: DateFilter; label: string }[] = [
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "last7", label: "Last 7 Days" },
+  { value: "custom", label: "Custom Date" },
+];
+
+function toYmd(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function startOfLocalDay(d: Date) {
+  const out = new Date(d);
+  out.setHours(0, 0, 0, 0);
+  return out;
+}
+
+function endOfLocalDay(d: Date) {
+  const out = new Date(d);
+  out.setHours(23, 59, 59, 999);
+  return out;
+}
+
+function parseYmd(ymd: string) {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function completedRange(
+  filter: DateFilter,
+  customDate: string,
+): { start: Date; end: Date; titleSuffix: string; emptyFor: string } {
+  const now = new Date();
+  const todayStart = startOfLocalDay(now);
+
+  if (filter === "yesterday") {
+    const start = new Date(todayStart);
+    start.setDate(start.getDate() - 1);
+    return {
+      start,
+      end: endOfLocalDay(start),
+      titleSuffix: "Yesterday",
+      emptyFor: "yesterday",
+    };
+  }
+
+  if (filter === "last7") {
+    const start = new Date(todayStart);
+    start.setDate(start.getDate() - 6);
+    return {
+      start,
+      end: endOfLocalDay(now),
+      titleSuffix: "Last 7 Days",
+      emptyFor: "the last 7 days",
+    };
+  }
+
+  if (filter === "custom") {
+    const day = customDate ? parseYmd(customDate) : new Date();
+    const safeDay = Number.isNaN(day.getTime()) ? new Date() : day;
+    const label = safeDay.toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return {
+      start: startOfLocalDay(safeDay),
+      end: endOfLocalDay(safeDay),
+      titleSuffix: label,
+      emptyFor: label,
+    };
+  }
+
+  return {
+    start: todayStart,
+    end: endOfLocalDay(now),
+    titleSuffix: "Today",
+    emptyFor: "today",
+  };
+}
+
+function CompletedTable({
+  initialOrders,
+}: {
+  initialOrders: DashboardOrder[];
+}) {
+  const [filter, setFilter] = useState<DateFilter>("today");
+  const [customDate, setCustomDate] = useState(() => toYmd(new Date()));
+  const [orders, setOrders] = useState<DashboardOrder[]>(initialOrders);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("time");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  // Skip the first fetch when SSR already seeded today's completed rows.
+  const skipNextFetch = useRef(true);
+  const requestId = useRef(0);
+
+  const range = useMemo(
+    () => completedRange(filter, customDate),
+    [filter, customDate],
+  );
+
+  const loadOrders = useEffectEvent(async (start: Date, end: Date) => {
+    const id = ++requestId.current;
+    setLoading(true);
+    setFetchError(null);
+    try {
+      const { orders: next, error } = await fetchCompletedOrders(
+        start.toISOString(),
+        end.toISOString(),
+      );
+      if (id !== requestId.current) return;
+      if (error) {
+        setFetchError(error);
+        setOrders([]);
+        return;
+      }
+      setOrders(next as DashboardOrder[]);
+    } finally {
+      if (id === requestId.current) setLoading(false);
+    }
+  });
+
+  useEffect(() => {
+    if (skipNextFetch.current && filter === "today") {
+      skipNextFetch.current = false;
+      return;
+    }
+    skipNextFetch.current = false;
+    void loadOrders(range.start, range.end);
+  }, [filter, customDate, range.start, range.end]);
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) {
@@ -630,25 +770,69 @@ function CompletedTable({ orders }: { orders: DashboardOrder[] }) {
 
   return (
     <section className="overflow-hidden rounded-2xl border border-[#E8E0D4] bg-white shadow-[0_1px_2px_rgba(28,25,23,0.04),0_8px_24px_rgba(28,25,23,0.04)]">
-      <div className="flex items-center gap-2.5 border-b border-[#EDE7DC] px-6 py-5">
-        <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]" />
-        <h2 className="text-base font-semibold tracking-tight text-zinc-900">
-          Completed Today
-        </h2>
-        <span className="ml-auto rounded-full bg-[#F7F3EC] px-2.5 py-0.5 text-xs font-semibold text-zinc-600">
-          {orders.length}
-        </span>
+      <div className="flex flex-col gap-3 border-b border-[#EDE7DC] px-6 py-5 sm:flex-row sm:items-center sm:gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]" />
+          <h2 className="truncate text-base font-semibold tracking-tight text-zinc-900">
+            Completed Orders
+            <span className="font-normal text-zinc-400">
+              {" "}
+              • {range.titleSuffix}
+            </span>
+          </h2>
+          <span className="shrink-0 rounded-full bg-[#F7F3EC] px-2.5 py-0.5 text-xs font-semibold tabular-nums text-zinc-600">
+            {loading ? "…" : orders.length}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          <label className="sr-only" htmlFor="completed-date-filter">
+            Filter completed orders by date
+          </label>
+          <div className="relative">
+            <select
+              id="completed-date-filter"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value as DateFilter)}
+              className="appearance-none rounded-xl border border-[#E8E0D4] bg-[#FBF8F3] py-2 pr-9 pl-3 text-sm font-medium text-zinc-800 outline-none transition-colors hover:border-[#D9CFC0] focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
+            >
+              {FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <span
+              className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[10px] text-zinc-400"
+              aria-hidden
+            >
+              ▼
+            </span>
+          </div>
+
+          {filter === "custom" && (
+            <input
+              type="date"
+              value={customDate}
+              max={toYmd(new Date())}
+              onChange={(e) => setCustomDate(e.target.value)}
+              className="rounded-xl border border-[#E8E0D4] bg-[#FBF8F3] px-3 py-2 text-sm font-medium text-zinc-800 outline-none transition-colors hover:border-[#D9CFC0] focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20"
+            />
+          )}
+        </div>
       </div>
 
-      {orders.length === 0 ? (
-        <p className="py-14 text-center text-sm text-zinc-400">
-          No completed orders yet today
-        </p>
+      {fetchError ? (
+        <p className="py-14 text-center text-sm text-rose-500">{fetchError}</p>
+      ) : loading ? (
+        <CompletedTableSkeleton />
+      ) : orders.length === 0 ? (
+        <CompletedEmptyState emptyFor={range.emptyFor} />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#EDE7DC] bg-[#FBF8F3] text-[11px] font-semibold uppercase tracking-[0.07em] text-zinc-500">
+              <tr className="border-b border-slate-100/80 bg-[#FBF8F3] text-xs font-semibold uppercase tracking-[0.07em] text-slate-400">
                 {COMPLETED_COLUMNS.map((col) => (
                   <th key={col.key} className={`px-6 py-3.5 ${col.align}`}>
                     <button
@@ -675,10 +859,17 @@ function CompletedTable({ orders }: { orders: DashboardOrder[] }) {
               {sorted.map((order) => (
                 <tr
                   key={order.id}
-                  className="border-b border-[#F0EBE3] last:border-b-0 transition-colors hover:bg-[#FBF8F3]"
+                  className="border-b border-slate-100/80 last:border-b-0 transition-colors hover:bg-[#FBF8F3]"
                 >
                   <td className="px-6 py-4 whitespace-nowrap font-mono text-[13px] tabular-nums text-zinc-400">
-                    {formatTime(order.created_at)}
+                    {filter === "last7"
+                      ? new Date(order.created_at).toLocaleString([], {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : formatTime(order.created_at)}
                   </td>
                   <td className="px-6 py-4 text-[15px] font-semibold tracking-tight text-zinc-900">
                     Table {order.tables?.table_number ?? "?"}
@@ -703,5 +894,53 @@ function CompletedTable({ orders }: { orders: DashboardOrder[] }) {
         </div>
       )}
     </section>
+  );
+}
+
+function CompletedTableSkeleton() {
+  return (
+    <div className="space-y-0 px-6 py-2" aria-busy aria-label="Loading orders">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-4 border-b border-slate-100/80 py-4 last:border-b-0"
+        >
+          <div className="h-3.5 w-14 animate-pulse rounded bg-zinc-100" />
+          <div className="h-3.5 w-20 animate-pulse rounded bg-zinc-100" />
+          <div className="h-3.5 flex-1 animate-pulse rounded bg-zinc-100" />
+          <div className="h-3.5 w-16 animate-pulse rounded bg-zinc-100" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CompletedEmptyState({ emptyFor }: { emptyFor: string }) {
+  return (
+    <div className="flex flex-col items-center px-6 py-14 text-center">
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F7F3EC] text-zinc-400">
+        <svg
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+          <rect x="9" y="3" width="6" height="4" rx="1" />
+          <path d="M9 12h6M9 16h4" />
+        </svg>
+      </div>
+      <p className="text-sm font-medium text-zinc-600">
+        No completed orders found for {emptyFor}
+      </p>
+      <p className="mt-1 text-xs text-zinc-400">
+        Try another date or check back later
+      </p>
+    </div>
   );
 }
