@@ -2,49 +2,23 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import {
-  forgotPassword,
-  type ForgotPasswordState,
-} from "@/app/actions/auth";
+import { login, type LoginState } from "@/app/actions/auth";
 
-export default function ForgotPasswordPage() {
-  const [state, action, pending] = useActionState<
-    ForgotPasswordState,
-    FormData
-  >(forgotPassword, undefined);
-
-  if (state?.success) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-4">
-        <div className="w-full max-w-sm space-y-4 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
-            Check your inbox
-          </h1>
-          <p className="text-sm text-zinc-500">
-            If an account exists for that email, we&apos;ve sent a link to
-            reset your password. The link expires after a short while, so use
-            it soon.
-          </p>
-          <Link
-            href="/admin/login"
-            className="inline-block text-sm font-medium text-zinc-700 underline underline-offset-4 transition hover:text-zinc-900"
-          >
-            Back to login
-          </Link>
-        </div>
-      </main>
-    );
-  }
+export default function LoginForm() {
+  const [state, action, pending] = useActionState<LoginState, FormData>(
+    login,
+    undefined,
+  );
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="space-y-1 text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
-            Forgot password
+            Admin Login
           </h1>
           <p className="text-sm text-zinc-500">
-            Enter your email and we&apos;ll send you a reset link
+            Sign in to manage your restaurant
           </p>
         </div>
 
@@ -67,6 +41,32 @@ export default function ForgotPasswordPage() {
             />
           </div>
 
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-zinc-700"
+              >
+                Password
+              </label>
+              <Link
+                href="/admin/forgot-password"
+                className="text-sm font-medium text-zinc-500 transition hover:text-zinc-900"
+              >
+                Forgot password?
+              </Link>
+            </div>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              className="block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500/20"
+              placeholder="••••••••"
+            />
+          </div>
+
           {state?.error && (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
               {state.error}
@@ -78,19 +78,9 @@ export default function ForgotPasswordPage() {
             disabled={pending}
             className="flex w-full items-center justify-center rounded-lg bg-brand-accent px-4 py-2.5 text-base font-medium text-zinc-950 transition-[filter,opacity] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pending ? "Sending…" : "Send reset link"}
+            {pending ? "Signing in…" : "Sign in"}
           </button>
         </form>
-
-        <p className="text-center text-sm text-zinc-500">
-          Remembered it?{" "}
-          <Link
-            href="/admin/login"
-            className="font-medium text-zinc-700 underline underline-offset-4 transition hover:text-zinc-900"
-          >
-            Back to login
-          </Link>
-        </p>
       </div>
     </main>
   );

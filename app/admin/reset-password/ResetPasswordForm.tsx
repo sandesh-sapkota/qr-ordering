@@ -82,7 +82,7 @@ export default function ResetPasswordForm({
         <button
           type="submit"
           disabled={pending}
-          className="flex w-full items-center justify-center rounded-lg bg-zinc-900 px-4 py-2.5 text-base font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex w-full items-center justify-center rounded-lg bg-brand-accent px-4 py-2.5 text-base font-medium text-zinc-950 transition-[filter,opacity] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {pending ? "Updating…" : "Update password"}
         </button>

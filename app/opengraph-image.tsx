@@ -34,7 +34,7 @@ export default function OpengraphImage() {
               padding: 12,
               gap: 6,
               borderRadius: 18,
-              backgroundColor: "#f59e0b",
+              backgroundColor: "#f59e0b", // --brand-accent
             }}
           >
             {[0, 1, 2, 3].map((i) => (
@@ -81,7 +81,7 @@ export default function OpengraphImage() {
             color: "#71717a",
           }}
         >
-          <span style={{ color: "#fbbf24", fontWeight: 600 }}>sgthali.app</span>
+          <span style={{ color: "#f59e0b", fontWeight: 600 }}>sgthali.app</span>
           <span>·</span>
           <span>QR ordering for modern restaurants</span>
         </div>

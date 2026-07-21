@@ -31,7 +31,7 @@ export default async function SuperadminLayout({
       <header className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
         <div className="flex items-center gap-3">
           <Link href="/superadmin/restaurants" className="flex items-center gap-2">
-            <span className="rounded-md bg-zinc-900 px-2 py-0.5 text-xs font-semibold text-white">
+            <span className="rounded-md bg-brand-accent px-2 py-0.5 text-xs font-semibold text-zinc-950">
               Platform
             </span>
             <h1 className="text-lg font-semibold text-zinc-900">Superadmin</h1>

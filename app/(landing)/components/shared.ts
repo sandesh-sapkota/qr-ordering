@@ -23,6 +23,8 @@ export type IconKey =
   | "tables"
   | "insights";
 
+export type StepIcon = "scan" | "order" | "served";
+
 export interface Feature {
   icon: IconKey;
   title: string;
@@ -30,36 +32,37 @@ export interface Feature {
 }
 
 export interface Step {
-  number: string;
+  icon: StepIcon;
   title: string;
   description: string;
 }
 
-export interface PricingPlan {
-  name: string;
-  price: string;
-  period: string;
-  description: string;
-  features: string[];
-  cta: string;
-  href: string;
-  highlighted: boolean;
-}
+/** Live guest-menu demo used by nav + “See it live” CTAs. */
+export const DEMO_MENU_HREF =
+  "/r/chiya-arambha/t/227cf850-c2eb-4e06-942f-5cf7450f9788";
 
-// Cubic-bezier easing shared across reveals for a consistent, premium feel.
+/** WhatsApp chat for pricing inquiries — no tiers published on the site. */
+export const GET_PRICING_HREF =
+  "https://wa.me/9779749392634?text=" +
+  encodeURIComponent("Hi! I'm interested in SG Thali for my restaurant.");
+
+export const SECTION =
+  "mx-auto max-w-6xl scroll-mt-24 px-5 py-20 sm:px-8 sm:py-24";
+
+// Soft ease — intentional, not bouncy.
 const EASE_OUT: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
 export const fadeUp: Variants = {
-  hidden: { opacity: 0, y: 24 },
+  hidden: { opacity: 0, y: 16 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.6, ease: EASE_OUT },
+    transition: { duration: 0.55, ease: EASE_OUT },
   },
 };
 
 export const scaleIn: Variants = {
-  hidden: { opacity: 0, scale: 0.94 },
+  hidden: { opacity: 0, scale: 0.97 },
   visible: {
     opacity: 1,
     scale: 1,
@@ -70,16 +73,16 @@ export const scaleIn: Variants = {
 export const staggerContainer: Variants = {
   hidden: {},
   visible: {
-    transition: { staggerChildren: 0.08, delayChildren: 0.05 },
+    transition: { staggerChildren: 0.1, delayChildren: 0.04 },
   },
 };
 
 // Per-word entrance used by the hero headline.
 export const wordUp: Variants = {
-  hidden: { opacity: 0, y: "0.6em" },
+  hidden: { opacity: 0, y: "0.5em" },
   visible: {
     opacity: 1,
     y: "0em",
-    transition: { duration: 0.55, ease: EASE_OUT },
+    transition: { duration: 0.5, ease: EASE_OUT },
   },
 };

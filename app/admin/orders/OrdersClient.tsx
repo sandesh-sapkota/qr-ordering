@@ -46,6 +46,11 @@ const NEXT_ACTION: Partial<
   served: { nextStatus: "completed", label: "Complete" },
 };
 
+// The Completed column shows only recently-finished orders so it stays a quick
+// "did that just go out?" glance rather than an endless log. Older completed
+// orders stay in the database (see /admin/dashboard) — they just leave the column.
+const COMPLETED_VISIBLE_MS = 10 * 60 * 1000;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatPrice(price: number) {
@@ -317,6 +322,23 @@ export default function OrdersClient({
       .eq("id", order.id);
   }
 
+  // Ticks periodically so the Completed column's 10-minute window rolls
+  // forward without a refresh or extra subscription.
+  const now = useNow(30000);
+
+  const completedCutoff = now - COMPLETED_VISIBLE_MS;
+
+  function ordersForColumn(status: OrderStatus) {
+    if (status === "completed") {
+      return orders.filter(
+        (o) =>
+          o.status === "completed" &&
+          new Date(o.updated_at).getTime() >= completedCutoff,
+      );
+    }
+    return orders.filter((o) => o.status === status);
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-zinc-100">
       <header className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
@@ -401,7 +423,7 @@ export default function OrdersClient({
             key={column.status}
             label={column.label}
             accent={column.accent}
-            orders={orders.filter((o) => o.status === column.status)}
+            orders={ordersForColumn(column.status)}
             onAdvance={advanceOrder}
             newOrderIds={newOrderIds}
           />
@@ -540,7 +562,7 @@ function OrderCard({
           type="button"
           onClick={handleClick}
           disabled={isUpdating}
-          className="mt-2 w-full rounded-md bg-zinc-900 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
+          className="mt-2 w-full rounded-md bg-brand-accent py-1.5 text-sm font-medium text-zinc-950 transition-[filter,opacity] hover:brightness-110 disabled:opacity-50"
         >
           {isUpdating ? "Updating…" : action.label}
         </button>

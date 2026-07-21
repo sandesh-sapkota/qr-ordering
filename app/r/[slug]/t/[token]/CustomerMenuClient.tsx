@@ -295,7 +295,7 @@ export default function CustomerMenuClient({
           <div className="mx-auto max-w-lg">
             <button
               onClick={() => setCartOpen(true)}
-              className="flex w-full items-center justify-between rounded-xl bg-zinc-900 px-5 py-3.5 text-white active:bg-zinc-700 transition-colors"
+              className="flex w-full items-center justify-between rounded-xl bg-brand-accent px-5 py-3.5 text-zinc-950 active:brightness-110 transition-[filter]"
             >
               <span className="text-sm font-medium">
                 {cartCount} {cartCount === 1 ? "item" : "items"}
@@ -342,7 +342,7 @@ function CategoryTab({
       onClick={onClick}
       className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
         active
-          ? "bg-zinc-900 text-white"
+          ? "bg-brand-accent text-zinc-950"
           : "bg-zinc-100 text-zinc-600 active:bg-zinc-200"
       }`}
     >
@@ -387,7 +387,7 @@ function ItemCard({
           {quantity === 0 ? (
             <button
               onClick={onAdd}
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white active:bg-zinc-700 transition-colors"
+              className="rounded-lg bg-brand-accent px-4 py-2 text-sm font-medium text-zinc-950 active:brightness-110 transition-[filter]"
             >
               Add
             </button>
@@ -412,11 +412,11 @@ function QuantityStepper({
   onRemove: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1 rounded-lg bg-zinc-900 text-white">
+    <div className="flex items-center gap-1 rounded-lg bg-brand-accent text-zinc-950">
       <button
         onClick={onRemove}
         aria-label="Remove one"
-        className="px-3 py-2 text-base leading-none active:bg-zinc-700 rounded-l-lg transition-colors"
+        className="px-3 py-2 text-base leading-none active:brightness-95 rounded-l-lg transition-[filter]"
       >
         −
       </button>
@@ -424,7 +424,7 @@ function QuantityStepper({
       <button
         onClick={onAdd}
         aria-label="Add one"
-        className="px-3 py-2 text-base leading-none active:bg-zinc-700 rounded-r-lg transition-colors"
+        className="px-3 py-2 text-base leading-none active:brightness-95 rounded-r-lg transition-[filter]"
       >
         +
       </button>
@@ -633,7 +633,7 @@ function OrderConfirmation({
       </p>
       <button
         onClick={onOrderAgain}
-        className="mt-8 rounded-xl bg-zinc-900 px-6 py-3 text-sm font-medium text-white active:bg-zinc-700 transition-colors"
+        className="mt-8 rounded-xl bg-brand-accent px-6 py-3 text-sm font-medium text-zinc-950 active:brightness-110 transition-[filter]"
       >
         Order more
       </button>
@@ -730,7 +730,7 @@ function CartSheet({
               <button
                 onClick={onPlaceOrder}
                 disabled={isPlacing}
-                className="mt-3 w-full rounded-xl bg-zinc-900 px-5 py-3.5 text-sm font-semibold text-white active:bg-zinc-700 transition-colors disabled:opacity-60"
+                className="mt-3 w-full rounded-xl bg-brand-accent px-5 py-3.5 text-sm font-semibold text-zinc-950 active:brightness-110 transition-[filter,opacity] disabled:opacity-60"
               >
                 {isPlacing ? "Placing order…" : "Place Order"}
               </button>

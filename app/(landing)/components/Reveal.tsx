@@ -6,7 +6,7 @@
 import { motion, useReducedMotion, type Variants } from "framer-motion";
 import type { ReactNode } from "react";
 
-const VIEWPORT = { once: true, margin: "-80px" } as const;
+const VIEWPORT = { once: true, margin: "-64px" } as const;
 
 interface RevealProps {
   children: ReactNode;
@@ -73,7 +73,7 @@ interface MotionLinkProps {
   rel?: string;
 }
 
-/** CTA anchor with hover lift, shimmer sweep and tap feedback. */
+/** CTA anchor with subtle scale, amber glow, and tap feedback. */
 export function MotionLink({
   href,
   children,
@@ -85,10 +85,10 @@ export function MotionLink({
   const reduce = useReducedMotion();
 
   const base =
-    "group relative inline-flex h-12 items-center justify-center gap-2 overflow-hidden rounded-full px-6 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950";
+    "group relative inline-flex h-12 items-center justify-center gap-2 overflow-hidden rounded-full px-6 text-sm font-semibold transition-[background-color,box-shadow,filter,color] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950";
   const styles =
     variant === "primary"
-      ? "bg-amber-500 text-zinc-950 hover:bg-amber-400 shadow-lg shadow-amber-500/20"
+      ? "bg-brand-accent text-zinc-950 hover:brightness-110 shadow-lg shadow-brand-accent/25"
       : "border border-white/15 bg-white/5 text-zinc-100 hover:bg-white/10 backdrop-blur-sm";
 
   return (
@@ -97,9 +97,19 @@ export function MotionLink({
       target={target}
       rel={rel}
       className={`${base} ${styles} ${className}`}
-      whileHover={reduce ? undefined : { y: -2 }}
-      whileTap={reduce ? undefined : { scale: 0.97 }}
-      transition={{ type: "spring", stiffness: 400, damping: 24 }}
+      whileHover={
+        reduce
+          ? undefined
+          : {
+              scale: 1.03,
+              boxShadow:
+                variant === "primary"
+                  ? "0 12px 32px -8px rgba(245, 158, 11, 0.55)"
+                  : "0 8px 24px -10px rgba(255, 255, 255, 0.18)",
+            }
+      }
+      whileTap={reduce ? undefined : { scale: 0.98 }}
+      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
     >
       <span className="relative z-10 inline-flex items-center gap-2">
         {children}
@@ -107,7 +117,7 @@ export function MotionLink({
       {!reduce && (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 -translate-x-full bg-linear-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-full"
+          className="pointer-events-none absolute inset-0 -translate-x-full bg-linear-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-full"
         />
       )}
     </motion.a>

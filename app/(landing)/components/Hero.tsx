@@ -1,10 +1,10 @@
 "use client";
 
 // Hero section: staggered word-by-word headline, animated gradient phrase,
-// CTA buttons, a masked grid backdrop and the lazy-loaded 3D scene.
+// CTA buttons, a masked grid backdrop and the lazy-loaded phone scene.
 
 import { motion, useReducedMotion } from "framer-motion";
-import { staggerContainer, wordUp } from "./shared";
+import { DEMO_MENU_HREF, staggerContainer, wordUp } from "./shared";
 import { MotionLink } from "./Reveal";
 import HeroScene from "./HeroScene";
 
@@ -25,9 +25,9 @@ const HEADLINE: Word[] = [
 ];
 
 const STATS: { value: string; label: string }[] = [
-  { value: "Rs 0", label: "setup cost" },
   { value: "<1s", label: "order sync" },
   { value: "2", label: "languages" },
+  { value: "0", label: "apps to install" },
 ];
 
 export default function Hero() {
@@ -36,11 +36,11 @@ export default function Hero() {
   return (
     <section
       id="top"
-      className="relative mx-auto grid max-w-6xl items-center gap-12 px-5 pb-16 pt-28 sm:px-8 lg:grid-cols-2 lg:gap-8 lg:pb-24 lg:pt-36"
+      className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 pb-20 pt-28 sm:px-8 sm:pb-24 lg:grid-cols-2 lg:gap-8 lg:pt-36"
     >
       <div>
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-zinc-300 backdrop-blur-sm">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+          <span className="h-1.5 w-1.5 rounded-full bg-brand-accent" />
           QR ordering for modern restaurants
         </div>
 
@@ -75,7 +75,7 @@ export default function Hero() {
           </motion.h1>
         )}
 
-        <p className="mt-6 max-w-xl text-lg leading-8 text-zinc-400">
+        <p className="mt-6 max-w-xl text-base leading-7 text-zinc-400 sm:text-lg sm:leading-8">
           SG Thali lets guests scan, browse your menu in English or Nepali, and
           order in seconds — while every order lands live on your dashboard. No
           apps to install, no waiting, no missed tickets.
@@ -83,19 +83,19 @@ export default function Hero() {
 
         <p
           lang="ne"
-          className="mt-4 text-sm font-medium tracking-wide text-amber-400/90"
+          className="mt-4 text-sm font-medium tracking-wide text-brand-accent/90"
         >
           स्क्यान गर्नुहोस् · अर्डर गर्नुहोस् · खानुहोस्
         </p>
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <MotionLink href="#demo">See the live demo</MotionLink>
+          <MotionLink href={DEMO_MENU_HREF}>See it live</MotionLink>
           <MotionLink href="/admin/login" variant="secondary">
             Admin login
           </MotionLink>
         </div>
 
-        <dl className="mt-10 flex gap-8">
+        <dl className="mt-10 flex flex-wrap gap-x-8 gap-y-4">
           {STATS.map((stat) => (
             <div key={stat.label}>
               <dt className="text-2xl font-semibold text-zinc-50 tabular-nums">
@@ -107,7 +107,7 @@ export default function Hero() {
         </dl>
       </div>
 
-      <div className="relative">
+      <div className="relative mx-auto w-full max-w-sm lg:max-w-none">
         <HeroScene />
       </div>
     </section>

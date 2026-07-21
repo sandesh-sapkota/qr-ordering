@@ -12,6 +12,9 @@ import * as THREE from "three";
 const SCREEN_W = 512;
 const SCREEN_H = 1024;
 
+/** Matches `--brand-accent` in app/globals.css (canvas can't read CSS vars). */
+const BRAND_ACCENT = "#f59e0b";
+
 /** Draws a believable ordering UI onto an offscreen 2D canvas. */
 function drawOrderingUI(ctx: CanvasRenderingContext2D) {
   const w = SCREEN_W;
@@ -42,7 +45,7 @@ function drawOrderingUI(ctx: CanvasRenderingContext2D) {
 
   // Hero banner
   const banner = ctx.createLinearGradient(36, 0, w - 36, 0);
-  banner.addColorStop(0, "#f59e0b");
+  banner.addColorStop(0, BRAND_ACCENT);
   banner.addColorStop(1, "#fb7185");
   ctx.fillStyle = banner;
   rr(36, 160, w - 72, 150, 28);
@@ -59,7 +62,7 @@ function drawOrderingUI(ctx: CanvasRenderingContext2D) {
   pills.forEach((label, i) => {
     ctx.font = "600 24px system-ui, sans-serif";
     const pw = ctx.measureText(label).width + 44;
-    ctx.fillStyle = i === 0 ? "#f59e0b" : "#27272a";
+    ctx.fillStyle = i === 0 ? BRAND_ACCENT : "#27272a";
     rr(px, 344, pw, 56, 28);
     ctx.fill();
     ctx.fillStyle = i === 0 ? "#1c1005" : "#a1a1aa";
@@ -84,14 +87,14 @@ function drawOrderingUI(ctx: CanvasRenderingContext2D) {
     ctx.fillStyle = "#fafafa";
     ctx.font = "600 28px system-ui, sans-serif";
     ctx.fillText(name, 156, ry + 58);
-    ctx.fillStyle = "#f59e0b";
+    ctx.fillStyle = BRAND_ACCENT;
     ctx.font = "700 26px system-ui, sans-serif";
     ctx.fillText(price, 156, ry + 96);
     // add button
     ctx.fillStyle = "#27272a";
     rr(w - 116, ry + 34, 60, 52, 16);
     ctx.fill();
-    ctx.fillStyle = "#f59e0b";
+    ctx.fillStyle = BRAND_ACCENT;
     ctx.font = "700 34px system-ui, sans-serif";
     ctx.fillText("+", w - 96, ry + 71);
     ry += 140;
@@ -99,8 +102,8 @@ function drawOrderingUI(ctx: CanvasRenderingContext2D) {
 
   // Bottom order bar
   const btn = ctx.createLinearGradient(36, 0, w - 36, 0);
-  btn.addColorStop(0, "#f59e0b");
-  btn.addColorStop(1, "#fbbf24");
+  btn.addColorStop(0, BRAND_ACCENT);
+  btn.addColorStop(1, BRAND_ACCENT);
   ctx.fillStyle = btn;
   rr(36, h - 128, w - 72, 88, 30);
   ctx.fill();
@@ -139,7 +142,7 @@ function Phone() {
   const texture = useScreenTexture();
 
   return (
-    <Float speed={1.4} rotationIntensity={0.5} floatIntensity={0.7}>
+    <Float speed={1.1} rotationIntensity={0.25} floatIntensity={0.35}>
       <group rotation={[0.1, -0.35, 0]}>
         {/* Body */}
         <mesh castShadow>
@@ -150,12 +153,12 @@ function Phone() {
             roughness={0.35}
           />
         </mesh>
-        {/* Amber rim glow */}
+        {/* Brand accent rim glow */}
         <mesh position={[0, 0, -0.02]}>
           <boxGeometry args={[1.78, 3.48, 0.18]} />
           <meshStandardMaterial
-            color="#f59e0b"
-            emissive="#f59e0b"
+            color={BRAND_ACCENT}
+            emissive={BRAND_ACCENT}
             emissiveIntensity={0.6}
             roughness={0.4}
           />
@@ -199,7 +202,7 @@ export default function HeroCanvas() {
       <ambientLight intensity={0.7} />
       <directionalLight position={[4, 6, 5]} intensity={2.2} />
       <pointLight position={[-4, -2, 3]} intensity={30} color="#fb7185" />
-      <pointLight position={[3, 1, 4]} intensity={24} color="#f59e0b" />
+      <pointLight position={[3, 1, 4]} intensity={24} color={BRAND_ACCENT} />
       <Phone />
       <CameraParallax />
     </Canvas>

@@ -55,7 +55,7 @@ const btnSecondary =
   "rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 transition-colors";
 
 const btnPrimary =
-  "rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+  "rounded-lg bg-brand-accent px-4 py-2 text-sm font-medium text-zinc-950 hover:brightness-110 transition-[filter,opacity] disabled:cursor-not-allowed disabled:opacity-50";
 
 // ─── Field Wrapper ────────────────────────────────────────────────────────────
 

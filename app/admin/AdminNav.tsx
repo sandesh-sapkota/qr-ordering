@@ -7,6 +7,7 @@ import { logout } from "@/app/actions/auth";
 type NavLink = { href: string; label: string };
 
 const BASE_LINKS: NavLink[] = [
+  { href: "/admin/dashboard", label: "Dashboard" },
   { href: "/admin/orders", label: "Orders" },
   { href: "/admin/menu", label: "Menu" },
   { href: "/admin/tables", label: "Tables" },
@@ -53,7 +54,7 @@ function RestaurantLogo({
   // No logo uploaded — show the restaurant's initial as a placeholder.
   return (
     <div
-      className={`${className} flex shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-sm font-semibold text-white`}
+      className={`${className} flex shrink-0 items-center justify-center rounded-lg bg-brand-accent text-sm font-semibold text-zinc-950`}
     >
       {restaurantName.charAt(0).toUpperCase()}
     </div>
@@ -104,7 +105,7 @@ export default function AdminNav({
               href={link.href}
               className={`whitespace-nowrap rounded-t-lg px-4 py-2.5 text-sm font-medium transition-colors ${
                 isActive(link.href)
-                  ? "border-b-2 border-zinc-900 text-zinc-900"
+                  ? "border-b-2 border-brand-accent text-brand-accent"
                   : "text-zinc-500 hover:text-zinc-900"
               }`}
             >
@@ -136,7 +137,7 @@ export default function AdminNav({
               href={link.href}
               className={`rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                 isActive(link.href)
-                  ? "bg-zinc-900 text-white"
+                  ? "bg-brand-accent text-zinc-950"
                   : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
               }`}
             >

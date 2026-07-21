@@ -5,17 +5,19 @@
 
 import { motion, useReducedMotion, useScroll } from "framer-motion";
 import { useEffect, useState } from "react";
+import { DEMO_MENU_HREF, GET_PRICING_HREF } from "./shared";
 import { MotionLink } from "./Reveal";
 
 interface NavItem {
   label: string;
   href: string;
+  external?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { label: "How it works", href: "#how-it-works" },
-  { label: "Demo", href: "#demo" },
-  { label: "Pricing", href: "#pricing" },
+  { label: "See it live", href: "#demo" },
+  { label: "Get Pricing", href: GET_PRICING_HREF, external: true },
 ];
 
 export default function SiteHeader() {
@@ -49,9 +51,9 @@ export default function SiteHeader() {
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
         <a
           href="#top"
-          className="flex items-center gap-2 rounded text-base font-semibold tracking-tight text-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-950"
+          className="flex items-center gap-2 rounded text-base font-semibold tracking-tight text-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-950"
         >
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/30">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-accent text-zinc-950 shadow-lg shadow-brand-accent/30">
             <QrGlyph />
           </span>
           SG&nbsp;Thali
@@ -60,12 +62,15 @@ export default function SiteHeader() {
         <div className="hidden items-center gap-8 md:flex">
           {NAV_ITEMS.map((item) => (
             <a
-              key={item.href}
+              key={item.label}
               href={item.href}
-              className="group relative rounded text-sm font-medium text-zinc-300 transition-colors hover:text-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-950"
+              {...(item.external
+                ? { target: "_blank", rel: "noopener noreferrer" }
+                : {})}
+              className="group relative rounded text-sm font-medium text-zinc-300 transition-colors hover:text-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-950"
             >
               {item.label}
-              <span className="absolute -bottom-1 left-0 h-px w-0 bg-amber-400 transition-all duration-300 group-hover:w-full" />
+              <span className="absolute -bottom-1 left-0 h-px w-0 bg-brand-accent transition-all duration-300 group-hover:w-full" />
             </a>
           ))}
         </div>
@@ -73,11 +78,11 @@ export default function SiteHeader() {
         <div className="flex items-center gap-3">
           <a
             href="/admin/login"
-            className="hidden rounded text-sm font-medium text-zinc-300 transition-colors hover:text-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-950 sm:inline-flex"
+            className="hidden rounded text-sm font-medium text-zinc-300 transition-colors hover:text-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-950 sm:inline-flex"
           >
             Admin login
           </a>
-          <MotionLink href="#demo" className="h-10 px-5 text-sm">
+          <MotionLink href={DEMO_MENU_HREF} className="h-10 px-5 text-sm">
             See it live
           </MotionLink>
         </div>

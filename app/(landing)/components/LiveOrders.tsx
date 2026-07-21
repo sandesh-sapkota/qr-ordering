@@ -66,7 +66,7 @@ export default function LiveOrders({ orders }: LiveOrdersProps) {
       {/* Window chrome */}
       <div className="flex items-center gap-2 border-b border-white/5 px-4 py-3">
         <span className="h-3 w-3 rounded-full bg-red-500/80" />
-        <span className="h-3 w-3 rounded-full bg-amber-400/80" />
+        <span className="h-3 w-3 rounded-full bg-brand-accent/80" />
         <span className="h-3 w-3 rounded-full bg-emerald-500/80" />
         <span className="ml-3 flex items-center gap-2 text-xs font-medium text-zinc-400">
           <span className="relative flex h-2 w-2">
