@@ -82,7 +82,10 @@ export default function SiteHeader() {
           >
             Admin login
           </a>
-          <MotionLink href={DEMO_MENU_HREF} className="h-10 px-5 text-sm">
+          <MotionLink
+            href={DEMO_MENU_HREF}
+            className="hidden h-10 px-5 text-sm sm:inline-flex"
+          >
             See it live
           </MotionLink>
         </div>

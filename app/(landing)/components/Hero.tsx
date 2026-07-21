@@ -83,19 +83,25 @@ export default function Hero() {
 
         <p
           lang="ne"
-          className="mt-4 text-sm font-medium tracking-wide text-brand-accent/90"
+          className="mt-4 text-sm font-medium tracking-wide text-amber-300"
         >
           स्क्यान गर्नुहोस् · अर्डर गर्नुहोस् · खानुहोस्
         </p>
 
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <MotionLink href={DEMO_MENU_HREF}>See it live</MotionLink>
-          <MotionLink href="/admin/login" variant="secondary">
+        <div className="mx-auto mt-8 flex w-full max-w-sm flex-col gap-3 sm:mx-0 sm:flex-row">
+          <MotionLink href={DEMO_MENU_HREF} className="w-full sm:w-auto">
+            See it live
+          </MotionLink>
+          <MotionLink
+            href="/admin/login"
+            variant="secondary"
+            className="w-full sm:w-auto"
+          >
             Admin login
           </MotionLink>
         </div>
 
-        <dl className="mt-10 flex flex-wrap gap-x-8 gap-y-4">
+        <dl className="relative z-10 mb-12 mt-10 flex flex-wrap gap-x-8 gap-y-4">
           {STATS.map((stat) => (
             <div key={stat.label}>
               <dt className="text-2xl font-semibold text-zinc-50 tabular-nums">
@@ -107,7 +113,7 @@ export default function Hero() {
         </dl>
       </div>
 
-      <div className="relative mx-auto w-full max-w-sm lg:max-w-none">
+      <div className="relative z-0 mx-auto w-full max-w-sm lg:max-w-none">
         <HeroScene />
       </div>
     </section>
