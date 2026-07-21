@@ -17,6 +17,7 @@ import AmbientOrbs from "./(landing)/components/AmbientOrbs";
 import SiteHeader from "./(landing)/components/SiteHeader";
 import Hero from "./(landing)/components/Hero";
 import LiveOrders from "./(landing)/components/LiveOrders";
+import TrustedBy from "./(landing)/components/TrustedBy";
 
 const SITE_URL = "https://sgthali.app";
 const SITE_DESCRIPTION =
@@ -165,6 +166,8 @@ export default function Home() {
 
       <main>
         <Hero />
+
+        <TrustedBy />
 
         {/* How it works — Scan → Order → Served */}
         <section id="how-it-works" className={SECTION}>

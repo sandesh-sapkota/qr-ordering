@@ -79,3 +79,23 @@ body {
     animation: none;
   }
 }
+
+/* Infinite logo marquee — Trusted By social proof */
+@keyframes scroll-x-slow {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-scroll-x-slow {
+  animation: scroll-x-slow 45s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-scroll-x-slow {
+    animation: none;
+  }
+}
