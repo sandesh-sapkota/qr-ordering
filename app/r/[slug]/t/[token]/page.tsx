@@ -1,13 +1,18 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getAdminContext } from "@/lib/admin/get-admin-context";
 import CustomerMenuClient from "./CustomerMenuClient";
 
 export default async function CustomerMenuPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string; token: string }>;
+  searchParams: Promise<{ staff?: string }>;
 }) {
   const { slug, token } = await params;
+  const { staff: staffParam } = await searchParams;
+  const staffQuery = staffParam === "true";
 
   const supabase = await createClient();
 
@@ -27,6 +32,62 @@ export default async function CustomerMenuPage({
     .single();
 
   if (!table) notFound();
+
+  // Staff mode only when ?staff=true AND signed-in admin of this restaurant.
+  // Random customers appending ?staff=true stay on the normal QR flow.
+  let staffMode = false;
+  let staffMembers: {
+    id: string;
+    name: string;
+    role: string;
+    auth_user_id: string | null;
+  }[] = [];
+  let defaultStaffId: string | null = null;
+  let adminDisplayName: string | null = null;
+
+  if (staffQuery) {
+    const ctx = await getAdminContext();
+    if (ctx && ctx.admin.restaurant_id === restaurant.id) {
+      staffMode = true;
+      adminDisplayName = ctx.admin.name ?? ctx.user.email ?? "Admin";
+
+      const { data: staffRows } = await supabase
+        .from("staff_members")
+        .select("id, name, role, auth_user_id")
+        .eq("restaurant_id", restaurant.id)
+        .eq("is_active", true)
+        .order("name");
+
+      staffMembers = staffRows ?? [];
+
+      let linked = staffMembers.find((s) => s.auth_user_id === ctx.user.id);
+
+      // Default to the logged-in admin: ensure they have an active staff row.
+      if (!linked) {
+        const staffRole =
+          ctx.admin.role === "owner" ? "owner" : ("manager" as const);
+        const { data: created } = await supabase
+          .from("staff_members")
+          .insert({
+            restaurant_id: restaurant.id,
+            auth_user_id: ctx.user.id,
+            name: adminDisplayName,
+            role: staffRole,
+            passcode_pin: "0000",
+            is_active: true,
+          })
+          .select("id, name, role, auth_user_id")
+          .single();
+
+        if (created) {
+          staffMembers = [created, ...staffMembers];
+          linked = created;
+        }
+      }
+
+      defaultStaffId = linked?.id ?? staffMembers[0]?.id ?? null;
+    }
+  }
 
   const [{ data: categories }, { data: items }, { data: optionGroups }] =
     await Promise.all([
@@ -126,6 +187,10 @@ export default async function CustomerMenuPage({
       categories={categories ?? []}
       items={items ?? []}
       modifierGroupsByItemId={modifierGroupsByItemId}
+      staffMode={staffMode}
+      staffMembers={staffMembers}
+      defaultStaffId={defaultStaffId}
+      adminDisplayName={adminDisplayName}
     />
   );
 }

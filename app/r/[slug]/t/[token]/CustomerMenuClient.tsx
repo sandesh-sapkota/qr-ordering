@@ -8,7 +8,8 @@ import {
   type ReactNode,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { placeOrder } from "./actions";
+import { placeOrder } from "@/app/actions/orders";
+import { placeOrder as placeCustomerOrder } from "./actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,13 @@ type CartLine = {
   notes: string;
   modifiers: SelectedModifier[];
   unitPrice: number;
+};
+
+type StaffMemberOption = {
+  id: string;
+  name: string;
+  role: string;
+  auth_user_id: string | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -195,6 +203,10 @@ export default function CustomerMenuClient({
   categories,
   items,
   modifierGroupsByItemId,
+  staffMode = false,
+  staffMembers = [],
+  defaultStaffId = null,
+  adminDisplayName = null,
 }: {
   restaurantName: string;
   restaurantLogoUrl: string | null;
@@ -204,6 +216,10 @@ export default function CustomerMenuClient({
   categories: Category[];
   items: MenuItem[];
   modifierGroupsByItemId: Record<string, ModifierGroup[]>;
+  staffMode?: boolean;
+  staffMembers?: StaffMemberOption[];
+  defaultStaffId?: string | null;
+  adminDisplayName?: string | null;
 }) {
   const sessionKey = `order_id:${token}`;
 
@@ -216,12 +232,23 @@ export default function CustomerMenuClient({
   const [placedOrderId, setPlacedOrderId] = useState<string | null>(null);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [isPlacing, startPlacing] = useTransition();
+  const [selectedStaffId, setSelectedStaffId] = useState<string>(
+    defaultStaffId ?? "",
+  );
+  const [staffToast, setStaffToast] = useState<string | null>(null);
 
   useEffect(() => {
+    if (staffMode) return;
     const stored = sessionStorage.getItem(sessionKey);
     if (stored) setActiveOrderId(stored);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!staffToast) return;
+    const t = window.setTimeout(() => setStaffToast(null), 2800);
+    return () => window.clearTimeout(t);
+  }, [staffToast]);
 
   function groupsFor(itemId: string): ModifierGroup[] {
     return modifierGroupsByItemId[itemId] ?? [];
@@ -366,31 +393,57 @@ export default function CustomerMenuClient({
 
   function handlePlaceOrder() {
     setCheckoutError(null);
+
+    if (staffMode && !selectedStaffId) {
+      setCheckoutError(
+        staffMembers.length === 0
+          ? "Add an active staff member before taking orders."
+          : "Select which staff member is taking this order.",
+      );
+      return;
+    }
+
     startPlacing(async () => {
-      const result = await placeOrder({
-        slug,
-        token,
-        items: [...cart.values()].map((line) => ({
-          menuItemId: line.item.id,
-          quantity: line.quantity,
-          notes: buildOrderNotes(line.modifiers, line.notes),
-          optionIds: line.modifiers.map((m) => m.optionId),
-        })),
-      });
+      const payload = [...cart.values()].map((line) => ({
+        menuItemId: line.item.id,
+        quantity: line.quantity,
+        notes: buildOrderNotes(line.modifiers, line.notes),
+        optionIds: line.modifiers.map((m) => m.optionId),
+      }));
+
+      const result = staffMode
+        ? await placeOrder({
+            slug,
+            token,
+            items: payload,
+            staffId: selectedStaffId,
+            orderSource: "waiter_pos",
+          })
+        : await placeCustomerOrder({
+            slug,
+            token,
+            items: payload,
+          });
 
       if (result.ok) {
-        sessionStorage.setItem(sessionKey, result.orderId);
-        setActiveOrderId(result.orderId);
-        setPlacedOrderId(result.orderId);
         setCart(new Map());
         setCartOpen(false);
+        if (staffMode) {
+          setStaffToast(
+            `Order #${result.orderId.slice(-6).toUpperCase()} placed for Table ${tableNumber}`,
+          );
+        } else {
+          sessionStorage.setItem(sessionKey, result.orderId);
+          setActiveOrderId(result.orderId);
+          setPlacedOrderId(result.orderId);
+        }
       } else {
         setCheckoutError(result.error);
       }
     });
   }
 
-  if (placedOrderId) {
+  if (placedOrderId && !staffMode) {
     return (
       <OrderConfirmation
         restaurantName={restaurantName}
@@ -402,9 +455,26 @@ export default function CustomerMenuClient({
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f3ec] pb-28 text-zinc-900">
+    <div
+      className={`min-h-screen pb-28 text-zinc-900 ${
+        staffMode ? "bg-amber-50" : "bg-[#f7f3ec]"
+      }`}
+    >
       {/* Sticky chrome */}
-      <div className="sticky top-0 z-20 border-b border-amber-900/8 bg-[#f7f3ec]/95 backdrop-blur-md">
+      <div
+        className={`sticky top-0 z-20 border-b backdrop-blur-md ${
+          staffMode
+            ? "border-amber-200 bg-amber-100/95"
+            : "border-amber-900/8 bg-[#f7f3ec]/95"
+        }`}
+      >
+        {staffMode && (
+          <div className="border-b border-amber-200/80 bg-amber-200/60 px-4 py-2">
+            <p className="text-center text-xs font-bold uppercase tracking-[0.14em] text-amber-950">
+              Staff Mode — Table {tableNumber}
+            </p>
+          </div>
+        )}
         <header className="px-4 pb-2 pt-4">
           <div className="flex items-center gap-3.5">
             <div className="flex h-12 w-12 shrink-0 overflow-hidden rounded-full border border-slate-200/80 bg-white shadow-sm md:h-14 md:w-14">
@@ -426,18 +496,64 @@ export default function CustomerMenuClient({
             </div>
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-xl font-bold text-slate-900 md:text-2xl">
-                {restaurantName}
+                {staffMode
+                  ? `STAFF MODE - Table ${tableNumber}`
+                  : restaurantName}
               </h1>
               <p className="mt-0.5 truncate text-xs text-slate-500 md:text-sm">
-                Table {tableNumber}
-                <span className="mx-1.5 text-slate-300">•</span>
-                Digital Menu
+                {staffMode ? (
+                  <>
+                    {restaurantName}
+                    <span className="mx-1.5 text-slate-300">•</span>
+                    Waiter POS
+                  </>
+                ) : (
+                  <>
+                    Table {tableNumber}
+                    <span className="mx-1.5 text-slate-300">•</span>
+                    Digital Menu
+                  </>
+                )}
               </p>
             </div>
           </div>
+
+          {staffMode && (
+            <div className="mt-3">
+              <label
+                htmlFor="staff-member"
+                className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-900/70"
+              >
+                Taking order as
+              </label>
+              {staffMembers.length === 0 ? (
+                <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                  No active staff members found
+                  {adminDisplayName ? ` (signed in as ${adminDisplayName})` : ""}
+                  . Add staff members before placing waiter orders.
+                </p>
+              ) : (
+                <select
+                  id="staff-member"
+                  value={selectedStaffId}
+                  onChange={(e) => setSelectedStaffId(e.target.value)}
+                  className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-sm font-medium text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-400/30"
+                >
+                  {staffMembers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.role ? ` (${s.role})` : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
         </header>
 
-        {activeOrderId && <OrderStatusBar orderId={activeOrderId} />}
+        {!staffMode && activeOrderId && (
+          <OrderStatusBar orderId={activeOrderId} />
+        )}
 
         <div className="px-4 pb-2.5">
           <label className="relative block">
@@ -545,7 +661,8 @@ export default function CustomerMenuClient({
             className="pointer-events-auto flex w-full max-w-lg items-center justify-between gap-3 rounded-full bg-zinc-950 px-5 py-3.5 text-white shadow-[0_12px_40px_-8px_rgba(0,0,0,0.45)] transition-[transform,filter] active:scale-[0.98] active:brightness-110"
           >
             <span className="text-sm font-medium">
-              View Order ({cartCount} {cartCount === 1 ? "item" : "items"})
+              {staffMode ? "View Staff Order" : "View Order"} ({cartCount}{" "}
+              {cartCount === 1 ? "item" : "items"})
             </span>
             <span className="text-sm font-semibold text-brand-accent">
               {formatPrice(cartTotal)}
@@ -560,6 +677,7 @@ export default function CustomerMenuClient({
           total={cartTotal}
           isPlacing={isPlacing}
           error={checkoutError}
+          staffMode={staffMode}
           onIncrement={incrementLine}
           onDecrement={decrementLine}
           onNotesChange={setLineNotes}
@@ -578,6 +696,18 @@ export default function CustomerMenuClient({
           }}
           onClose={() => setCustomizing(null)}
         />
+      )}
+
+      {staffToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4"
+        >
+          <div className="pointer-events-auto max-w-sm rounded-2xl bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-white shadow-lg">
+            {staffToast}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1239,6 +1369,7 @@ function CartSheet({
   total,
   isPlacing,
   error,
+  staffMode = false,
   onIncrement,
   onDecrement,
   onNotesChange,
@@ -1249,6 +1380,7 @@ function CartSheet({
   total: number;
   isPlacing: boolean;
   error: string | null;
+  staffMode?: boolean;
   onIncrement: (key: string) => void;
   onDecrement: (key: string) => void;
   onNotesChange: (key: string, notes: string) => void;
@@ -1259,7 +1391,9 @@ function CartSheet({
     <SheetShell onClose={onClose}>
       <div className="flex max-h-[80vh] flex-col">
         <div className="flex items-center justify-between px-4 pb-2 pt-1">
-          <h2 className="text-base font-semibold text-zinc-900">Your Order</h2>
+          <h2 className="text-base font-semibold text-zinc-900">
+            {staffMode ? "Staff Order" : "Your Order"}
+          </h2>
           <button
             type="button"
             onClick={onClose}
@@ -1330,9 +1464,17 @@ function CartSheet({
                 type="button"
                 onClick={onPlaceOrder}
                 disabled={isPlacing}
-                className="mt-3 w-full rounded-xl bg-brand-accent px-5 py-3.5 text-sm font-semibold text-zinc-950 transition-[filter,opacity] active:brightness-110 disabled:opacity-60"
+                className={`mt-3 w-full rounded-xl px-5 py-3.5 text-sm font-semibold transition-[filter,opacity] active:brightness-110 disabled:opacity-60 ${
+                  staffMode
+                    ? "bg-amber-500 text-amber-950"
+                    : "bg-brand-accent text-zinc-950"
+                }`}
               >
-                {isPlacing ? "Placing order…" : "Place Order"}
+                {isPlacing
+                  ? "Placing order…"
+                  : staffMode
+                    ? "Place Staff Order"
+                    : "Place Order"}
               </button>
             </div>
           </>
