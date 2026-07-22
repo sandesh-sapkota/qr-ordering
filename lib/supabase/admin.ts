@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/supabase";
 
 // Service-role client — bypasses RLS and can call the Auth Admin API
 // (inviteUserByEmail, etc). The service role key is read from a non-public env
@@ -22,7 +23,7 @@ export function createAdminClient() {
 
   // This client is short-lived and stateless: it never handles a browser
   // session, so disable session persistence and token refresh.
-  return createClient(url, serviceRoleKey, {
+  return createClient<Database>(url, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
