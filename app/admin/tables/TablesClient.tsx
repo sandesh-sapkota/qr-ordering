@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useRef, useState } from "react";
 import QRCode from "react-qr-code";
 import {
@@ -364,7 +365,16 @@ export default function TablesClient({
                       {new Date(t.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex flex-wrap items-center justify-end gap-1">
+                        {restaurantSlug ? (
+                          <Link
+                            href={`/r/${restaurantSlug}/t/${t.qr_token}?staff=true`}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-100 px-2.5 py-1.5 text-xs font-semibold text-amber-950 ring-1 ring-amber-200/80 transition-colors hover:bg-amber-200/80"
+                          >
+                            <PosIcon />
+                            <span>Take Order (Staff POS)</span>
+                          </Link>
+                        ) : null}
                         <button
                           onClick={() => setModal({ type: "qr", table: t })}
                           title="View / Download QR"
@@ -405,6 +415,18 @@ export default function TablesClient({
       {modal?.type === "delete" && <DeleteTableModal table={modal.table} onClose={close} />}
       {modal?.type === "regen" && <RegenTokenModal table={modal.table} onClose={close} />}
     </div>
+  );
+}
+
+function PosIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path
+        d="M3 3h10v7H3zM5 13h6M8 10v3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
