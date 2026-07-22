@@ -1,43 +1,35 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getAdminContext } from "@/lib/admin/get-admin-context";
 import MenuClient from "./MenuClient";
 
 export default async function MenuPage() {
+  const ctx = await getAdminContext();
+  if (!ctx) redirect("/admin/login");
+
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/admin/login");
-
-  const { data: adminUser } = await supabase
-    .from("admin_users")
-    .select("restaurant_id")
-    .eq("id", user.id)
-    .single();
-
-  if (!adminUser) redirect("/admin/login");
+  const restaurantId = ctx.admin.restaurant_id;
 
   const [{ data: categories }, { data: items }, { data: optionGroups }] =
     await Promise.all([
       supabase
         .from("menu_categories")
         .select("id, name, display_order")
-        .eq("restaurant_id", adminUser.restaurant_id)
+        .eq("restaurant_id", restaurantId)
         .order("display_order"),
       supabase
         .from("menu_items")
         .select(
           "id, name, description, price, image_url, is_available, display_order, category_id",
         )
-        .eq("restaurant_id", adminUser.restaurant_id)
+        .eq("restaurant_id", restaurantId)
         .order("display_order"),
       supabase
         .from("menu_item_option_groups")
         .select(
           "id, menu_item_id, title, selection_type, is_required, display_order, menu_item_options(id, name, price_adjustment, display_order)",
         )
-        .eq("restaurant_id", adminUser.restaurant_id)
+        .eq("restaurant_id", restaurantId)
         .order("display_order"),
     ]);
 

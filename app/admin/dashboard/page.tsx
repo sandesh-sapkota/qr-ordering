@@ -1,22 +1,13 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getAdminContext } from "@/lib/admin/get-admin-context";
 import DashboardClient, { type DashboardOrder } from "./DashboardClient";
 
 export default async function DashboardPage() {
+  const ctx = await getAdminContext();
+  if (!ctx) redirect("/admin/login");
+
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/admin/login");
-
-  const { data: adminUser } = await supabase
-    .from("admin_users")
-    .select("restaurant_id")
-    .eq("id", user.id)
-    .single();
-
-  if (!adminUser) redirect("/admin/login");
 
   // Fetch the last 48h so the client can derive both the local calendar day
   // and the prior local day for vs-yesterday comparisons. The server can't
@@ -28,7 +19,7 @@ export default async function DashboardPage() {
     .select(
       "id, status, total_amount, created_at, updated_at, tables(table_number), order_items(id, quantity, menu_items(name))",
     )
-    .eq("restaurant_id", adminUser.restaurant_id)
+    .eq("restaurant_id", ctx.admin.restaurant_id)
     .gte("created_at", since)
     .order("created_at", { ascending: false });
 

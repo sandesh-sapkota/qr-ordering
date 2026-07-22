@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getAdminContext } from "@/lib/admin/get-admin-context";
 import AdminNav from "./AdminNav";
 
 // Shared shell for every /admin page. This layout also wraps /admin/login,
@@ -11,41 +12,27 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const ctx = await getAdminContext();
+
+  if (!ctx) {
+    return <>{children}</>;
+  }
+
+  // Platform-admin check stays here — not part of the restaurant admin context,
+  // and only needed for the nav chrome (which is preserved across soft navs).
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: platformAdmin } = await supabase
+    .from("platform_admins")
+    .select("id")
+    .eq("id", ctx.user.id)
+    .maybeSingle();
 
-  if (!user) {
-    return <>{children}</>;
-  }
-
-  const [{ data: adminUser }, { data: platformAdmin }] = await Promise.all([
-    supabase
-      .from("admin_users")
-      .select("name, restaurants(name, logo_url)")
-      .eq("id", user.id)
-      .maybeSingle(),
-    supabase
-      .from("platform_admins")
-      .select("id")
-      .eq("id", user.id)
-      .maybeSingle(),
-  ]);
-
-  if (!adminUser) {
-    return <>{children}</>;
-  }
-
-  const restaurant = adminUser.restaurants as unknown as {
-    name: string;
-    logo_url: string | null;
-  } | null;
+  const restaurant = ctx.admin.restaurants;
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-100 md:flex-row">
       <AdminNav
-        adminName={adminUser.name ?? user.email ?? "Admin"}
+        adminName={ctx.admin.name ?? ctx.user.email ?? "Admin"}
         restaurantName={restaurant?.name ?? "Restaurant"}
         restaurantLogoUrl={restaurant?.logo_url ?? null}
         isPlatformAdmin={Boolean(platformAdmin)}
