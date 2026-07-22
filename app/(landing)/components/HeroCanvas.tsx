@@ -5,7 +5,7 @@
 // texture, so no external assets). Loaded only on the client via next/dynamic.
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Float } from "@react-three/drei";
+import { Float, RoundedBox } from "@react-three/drei";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 
@@ -19,11 +19,16 @@ const BRAND_ACCENT = "#f59e0b";
 function drawOrderingUI(ctx: CanvasRenderingContext2D) {
   const w = SCREEN_W;
   const h = SCREEN_H;
+  const screenRadius = 56;
 
   const rr = (x: number, y: number, bw: number, bh: number, r: number) => {
     ctx.beginPath();
     ctx.roundRect(x, y, bw, bh, r);
   };
+
+  // Clip everything to a phone-screen rounded rect
+  rr(0, 0, w, h, screenRadius);
+  ctx.clip();
 
   const bg = ctx.createLinearGradient(0, 0, 0, h);
   bg.addColorStop(0, "#101014");
@@ -142,36 +147,52 @@ function Phone() {
   const texture = useScreenTexture();
 
   return (
-    <Float speed={1.1} rotationIntensity={0.25} floatIntensity={0.35}>
-      <group rotation={[0.1, -0.35, 0]}>
-        {/* Body */}
-        <mesh castShadow>
-          <boxGeometry args={[1.7, 3.4, 0.22]} />
+    <Float speed={1.1} rotationIntensity={0.18} floatIntensity={0.22}>
+      {/* Slightly smaller + gentler motion so the full device stays in frame */}
+      <group rotation={[0.08, -0.32, 0]} scale={0.88}>
+        {/* Chassis — rounded like a real phone */}
+        <RoundedBox
+          args={[1.7, 3.4, 0.22]}
+          radius={0.1}
+          smoothness={8}
+          bevelSegments={4}
+          castShadow
+        >
           <meshStandardMaterial
             color="#0b0b0d"
             metalness={0.9}
             roughness={0.35}
           />
-        </mesh>
+        </RoundedBox>
         {/* Brand accent rim glow */}
-        <mesh position={[0, 0, -0.02]}>
-          <boxGeometry args={[1.78, 3.48, 0.18]} />
+        <RoundedBox
+          args={[1.78, 3.48, 0.18]}
+          radius={0.105}
+          smoothness={8}
+          bevelSegments={4}
+          position={[0, 0, -0.02]}
+        >
           <meshStandardMaterial
             color={BRAND_ACCENT}
             emissive={BRAND_ACCENT}
             emissiveIntensity={0.6}
             roughness={0.4}
           />
-        </mesh>
-        {/* Screen */}
-        <mesh position={[0, 0, 0.121]}>
-          <planeGeometry args={[1.5, 3.16]} />
+        </RoundedBox>
+        {/* Screen inset with matching corner radius */}
+        <RoundedBox
+          args={[1.5, 3.16, 0.02]}
+          radius={0.08}
+          smoothness={8}
+          bevelSegments={4}
+          position={[0, 0, 0.112]}
+        >
           {texture ? (
             <meshBasicMaterial map={texture} toneMapped={false} />
           ) : (
             <meshBasicMaterial color="#101014" />
           )}
-        </mesh>
+        </RoundedBox>
       </group>
     </Float>
   );
@@ -180,10 +201,11 @@ function Phone() {
 /** Eases the camera toward the pointer for a subtle parallax effect. */
 function CameraParallax() {
   const { camera, pointer } = useThree();
-  const target = useRef(new THREE.Vector3(0, 0, 6));
+  const target = useRef(new THREE.Vector3(0, 0, 7.4));
 
   useFrame(() => {
-    target.current.set(pointer.x * 0.7, pointer.y * 0.5, 6);
+    // Keep parallax mild so the phone never drifts out of the canvas.
+    target.current.set(pointer.x * 0.35, pointer.y * 0.25, 7.4);
     camera.position.lerp(target.current, 0.05);
     camera.lookAt(0, 0, 0);
   });
@@ -195,7 +217,7 @@ export default function HeroCanvas() {
   return (
     <Canvas
       dpr={[1, 2]}
-      camera={{ position: [0, 0, 6], fov: 30 }}
+      camera={{ position: [0, 0, 7.4], fov: 32 }}
       gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
       style={{ width: "100%", height: "100%" }}
     >

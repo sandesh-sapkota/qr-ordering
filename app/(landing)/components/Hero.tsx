@@ -1,7 +1,7 @@
 "use client";
 
 // Hero section: staggered word-by-word headline, animated gradient phrase,
-// CTA buttons, a masked grid backdrop and the lazy-loaded phone scene.
+// CTA buttons, and the static phone mockup scene.
 
 import { motion, useReducedMotion } from "framer-motion";
 import { DEMO_MENU_HREF, staggerContainer, wordUp } from "./shared";
@@ -113,7 +113,7 @@ export default function Hero() {
         </dl>
       </div>
 
-      <div className="relative z-0 mx-auto w-full max-w-sm lg:max-w-none">
+      <div className="relative z-0 mx-auto w-full max-w-sm overflow-visible lg:max-w-none">
         <HeroScene />
       </div>
     </section>
