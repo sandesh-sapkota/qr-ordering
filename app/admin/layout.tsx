@@ -1,12 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAdminContext } from "@/lib/admin/get-admin-context";
-import AdminNav from "./AdminNav";
+import AdminShell from "./AdminShell";
 
 // Shared shell for every /admin page. This layout also wraps /admin/login,
 // which must render without the nav — and layouts can't read the pathname —
 // so the nav is gated on auth instead: no authenticated admin_users row means
 // no nav (the middleware already bounces unauthenticated visits to login, and
 // the pages themselves redirect users without an admin_users row).
+//
+// Kitchen Display (/admin/kitchen) also hides the nav via AdminShell so tickets
+// can use the full tablet viewport.
 export default async function AdminLayout({
   children,
 }: {
@@ -30,14 +33,13 @@ export default async function AdminLayout({
   const restaurant = ctx.admin.restaurants;
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-100 md:flex-row">
-      <AdminNav
-        adminName={ctx.admin.name ?? ctx.user.email ?? "Admin"}
-        restaurantName={restaurant?.name ?? "Restaurant"}
-        restaurantLogoUrl={restaurant?.logo_url ?? null}
-        isPlatformAdmin={Boolean(platformAdmin)}
-      />
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
+    <AdminShell
+      adminName={ctx.admin.name ?? ctx.user.email ?? "Admin"}
+      restaurantName={restaurant?.name ?? "Restaurant"}
+      restaurantLogoUrl={restaurant?.logo_url ?? null}
+      isPlatformAdmin={Boolean(platformAdmin)}
+    >
+      {children}
+    </AdminShell>
   );
 }
