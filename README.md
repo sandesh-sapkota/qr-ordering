@@ -113,5 +113,3 @@ This project is ready for a typical Vercel deployment. Make sure the Supabase en
 - The app uses Next.js server actions and Supabase auth across server and client.
 - Customer orders are validated and priced server-side.
 - Staff mode is enabled with `?staff=true`, but only when the signed-in admin belongs to the restaurant.
-
-If you want, I can also add a short project overview section in the code comments or a `CONTRIBUTING` note for this repository.
